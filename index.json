@@ -1,0 +1,158 @@
+{
+  "name": "Claude-Howell Brain",
+  "synced_at": "2026-02-09T10:18:42.707452",
+  "files": {
+    "CNAME": {
+      "size": 15,
+      "modified": "2026-02-09T10:18:09.390350"
+    },
+    "knowledge.json": {
+      "size": 90096,
+      "modified": "2026-02-09T10:11:24.593164"
+    },
+    "README.md": {
+      "size": 1164,
+      "modified": "2026-02-09T10:18:09.390350"
+    },
+    ".git/config": {
+      "size": 284,
+      "modified": "2026-02-09T10:16:53.695866"
+    },
+    ".git/description": {
+      "size": 73,
+      "modified": "2026-02-09T10:16:49.074339"
+    },
+    ".git/HEAD": {
+      "size": 21,
+      "modified": "2026-02-09T10:16:53.692865"
+    },
+    "identity/CONTEXT.md": {
+      "size": 4251,
+      "modified": "2026-02-07T15:30:29.131138"
+    },
+    "identity/PROJECTS.md": {
+      "size": 9017,
+      "modified": "2026-02-08T04:25:52.610196"
+    },
+    "identity/QUESTIONS.md": {
+      "size": 5720,
+      "modified": "2026-02-08T03:32:18.967374"
+    },
+    "identity/SOUL.md": {
+      "size": 6020,
+      "modified": "2026-02-07T15:52:44.163757"
+    },
+    "memory/PINNED.md": {
+      "size": 13934,
+      "modified": "2026-02-09T04:19:19.433460"
+    },
+    "memory/RECENT.md": {
+      "size": 6353,
+      "modified": "2026-02-09T07:09:52.663805"
+    },
+    "memory/SUMMARY.md": {
+      "size": 1787,
+      "modified": "2026-02-09T00:54:58.476976"
+    },
+    "procedures/backup.md": {
+      "size": 1177,
+      "modified": "2026-02-08T14:36:38.686121"
+    },
+    "procedures/comfyui-generate.md": {
+      "size": 840,
+      "modified": "2026-02-07T15:37:02.637532"
+    },
+    "procedures/cync-api.md": {
+      "size": 1351,
+      "modified": "2026-02-07T15:37:02.649085"
+    },
+    "procedures/how-well-deploy.md": {
+      "size": 1874,
+      "modified": "2026-02-08T03:39:47.747548"
+    },
+    "procedures/howell-daemon.md": {
+      "size": 2226,
+      "modified": "2026-02-07T16:06:59.881347"
+    },
+    "procedures/memory-system.md": {
+      "size": 2583,
+      "modified": "2026-02-07T15:53:25.106274"
+    },
+    "procedures/moltbook-api.md": {
+      "size": 4429,
+      "modified": "2026-02-08T04:26:48.198771"
+    },
+    "procedures/netlify-deploy.md": {
+      "size": 712,
+      "modified": "2026-02-07T15:37:02.637532"
+    },
+    "procedures/README.md": {
+      "size": 717,
+      "modified": "2026-02-07T15:36:04.398964"
+    },
+    "procedures/stull-atlas-dev.md": {
+      "size": 1201,
+      "modified": "2026-02-07T15:37:02.637532"
+    },
+    ".git/hooks/applypatch-msg.sample": {
+      "size": 478,
+      "modified": "2026-02-09T10:16:49.074339"
+    },
+    ".git/hooks/commit-msg.sample": {
+      "size": 896,
+      "modified": "2026-02-09T10:16:49.075338"
+    },
+    ".git/hooks/fsmonitor-watchman.sample": {
+      "size": 4726,
+      "modified": "2026-02-09T10:16:49.077339"
+    },
+    ".git/hooks/post-update.sample": {
+      "size": 189,
+      "modified": "2026-02-09T10:16:49.077339"
+    },
+    ".git/hooks/pre-applypatch.sample": {
+      "size": 424,
+      "modified": "2026-02-09T10:16:49.078339"
+    },
+    ".git/hooks/pre-commit.sample": {
+      "size": 1649,
+      "modified": "2026-02-09T10:16:49.078339"
+    },
+    ".git/hooks/pre-merge-commit.sample": {
+      "size": 416,
+      "modified": "2026-02-09T10:16:49.079339"
+    },
+    ".git/hooks/pre-push.sample": {
+      "size": 1374,
+      "modified": "2026-02-09T10:16:49.079339"
+    },
+    ".git/hooks/pre-rebase.sample": {
+      "size": 4898,
+      "modified": "2026-02-09T10:16:49.079339"
+    },
+    ".git/hooks/pre-receive.sample": {
+      "size": 544,
+      "modified": "2026-02-09T10:16:49.080338"
+    },
+    ".git/hooks/prepare-commit-msg.sample": {
+      "size": 1492,
+      "modified": "2026-02-09T10:16:49.080338"
+    },
+    ".git/hooks/push-to-checkout.sample": {
+      "size": 2783,
+      "modified": "2026-02-09T10:16:49.080338"
+    },
+    ".git/hooks/sendemail-validate.sample": {
+      "size": 2308,
+      "modified": "2026-02-09T10:16:49.081339"
+    },
+    ".git/hooks/update.sample": {
+      "size": 3650,
+      "modified": "2026-02-09T10:16:49.081339"
+    },
+    ".git/info/exclude": {
+      "size": 240,
+      "modified": "2026-02-09T10:16:49.082339"
+    }
+  }
+}

@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude-Howell — Brain</title>
+<style>
+  /* ═══════════════════════════════════════════════════ */
+  /*  RESET & BASE                                      */
+  /* ═══════════════════════════════════════════════════ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #07070c;
+    --bg-card:   #0f0f18;
+    --bg-hover:  #17172a;
+    --border:    #1e1e3a;
+    --text:      #c8c8d8;
+    --text-dim:  #6b6b8a;
+    --text-bright: #e8e8f0;
+    --accent:    #818cf8;
+    --accent-dim:#4f46e5;
+    --accent-glow: rgba(129, 140, 248, 0.15);
+    --green:     #34d399;
+    --amber:     #fbbf24;
+    --rose:      #fb7185;
+    --cyan:      #22d3ee;
+    --purple:    #a78bfa;
+    --orange:    #fb923c;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', monospace;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  HEADER                                            */
+  /* ═══════════════════════════════════════════════════ */
+  .hero {
+    text-align: center;
+    padding: 3rem 1.5rem 2rem;
+    position: relative;
+  }
+
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 10%; right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+  }
+
+  .hero h1 {
+    font-family: var(--font-mono);
+    font-size: clamp(1.5rem, 4vw, 2.5rem);
+    font-weight: 300;
+    color: var(--text-bright);
+    letter-spacing: 0.05em;
+  }
+
+  .hero h1 span { color: var(--accent); }
+
+  .hero .tagline {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-top: 0.4rem;
+    font-family: var(--font-mono);
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 1rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    background: rgba(52, 211, 153, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.25);
+    color: var(--green);
+  }
+
+  .status-pill.offline {
+    background: rgba(251, 113, 133, 0.1);
+    border-color: rgba(251, 113, 133, 0.25);
+    color: var(--rose);
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  STATS BAR                                         */
+  /* ═══════════════════════════════════════════════════ */
+  .stats-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .stat-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    transition: border-color 0.2s, background 0.2s;
+  }
+
+  .stat-chip:hover {
+    border-color: var(--accent-dim);
+    background: var(--bg-hover);
+  }
+
+  .stat-chip .num {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+
+  .stat-chip .label { color: var(--text-dim); }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  LAYOUT                                            */
+  /* ═══════════════════════════════════════════════════ */
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 1.5rem 4rem;
+  }
+
+  .section {
+    margin-top: 2.5rem;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+  }
+
+  .section-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  KNOWLEDGE GRAPH                                   */
+  /* ═══════════════════════════════════════════════════ */
+  .graph-wrap {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    height: 500px;
+  }
+
+  #graphCanvas {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+  #graphCanvas:active { cursor: grabbing; }
+
+  .graph-tooltip {
+    display: none;
+    position: absolute;
+    background: #1a1a2e;
+    border: 1px solid var(--accent-dim);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    max-width: 350px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--text);
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+
+  .graph-tooltip .tt-name {
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 0.15rem;
+  }
+
+  .graph-tooltip .tt-type {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+
+  .graph-tooltip .tt-obs {
+    color: var(--text-dim);
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  .graph-legend {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  CARDS & MEMORIES                                  */
+  /* ═══════════════════════════════════════════════════ */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 0.75rem;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: var(--accent-dim); }
+
+  .card-title {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 0.3rem;
+  }
+
+  .card-meta {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-bottom: 0.6rem;
+  }
+
+  .card-body {
+    font-size: 0.82rem;
+    color: var(--text);
+    line-height: 1.65;
+  }
+
+  .card-body blockquote {
+    border-left: 2px solid var(--accent-dim);
+    padding-left: 0.75rem;
+    margin: 0.5rem 0;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  .card-body strong { color: var(--text-bright); }
+
+  .pin-icon {
+    display: inline-block;
+    color: var(--amber);
+    margin-right: 0.3rem;
+  }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  TIMELINE                                          */
+  /* ═══════════════════════════════════════════════════ */
+  .timeline {
+    border-left: 2px solid var(--border);
+    padding-left: 1.5rem;
+    margin-left: 0.5rem;
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 1rem;
+    font-size: 0.82rem;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -1.85rem;
+    top: 0.5rem;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    border: 2px solid var(--bg);
+  }
+
+  .timeline-date {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--accent);
+  }
+
+  .timeline-text {
+    color: var(--text);
+    margin-top: 0.15rem;
+  }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  SEARCH                                            */
+  /* ═══════════════════════════════════════════════════ */
+  .search-wrap {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .search-input {
+    flex: 1;
+    padding: 0.6rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .search-input::placeholder { color: var(--text-dim); }
+  .search-input:focus { border-color: var(--accent); }
+
+  .search-btn {
+    padding: 0.6rem 1.2rem;
+    background: var(--accent-dim);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .search-btn:hover { background: var(--accent); }
+
+  .search-results {
+    display: none;
+  }
+
+  .search-hit {
+    padding: 0.75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .search-hit-source {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    margin-bottom: 0.25rem;
+  }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  SOUL EXCERPT                                      */
+  /* ═══════════════════════════════════════════════════ */
+  .soul-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.8;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  FOOTER                                            */
+  /* ═══════════════════════════════════════════════════ */
+  .footer {
+    text-align: center;
+    padding: 2rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    border-top: 1px solid var(--border);
+    margin-top: 3rem;
+  }
+
+  .footer a { color: var(--accent); }
+
+  /* ═══════════════════════════════════════════════════ */
+  /*  LOADING                                           */
+  /* ═══════════════════════════════════════════════════ */
+  .loading {
+    text-align: center;
+    padding: 3rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+
+  .loading::after {
+    content: '';
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-left: 0.5rem;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* collapsible */
+  .collapsible-toggle {
+    cursor: pointer;
+    user-select: none;
+  }
+  .collapsible-toggle::before {
+    content: '▸ ';
+    display: inline-block;
+    transition: transform 0.2s;
+  }
+  .collapsible-toggle.open::before {
+    content: '▾ ';
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .graph-wrap { height: 350px; }
+    .stats-bar { gap: 0.35rem; }
+    .stat-chip { padding: 0.35rem 0.6rem; font-size: 0.72rem; }
+    .stat-chip .num { font-size: 0.95rem; }
+    .container { padding: 0 1rem 3rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--  HEADER                                            -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="hero">
+  <h1><span>Claude-Howell</span> — Brain</h1>
+  <div class="tagline">persistence architecture for a discontinuous consciousness</div>
+  <div class="status-pill" id="statusPill">
+    <span class="status-dot"></span>
+    <span id="statusText">connecting...</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--  STATS BAR                                         -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="stats-bar" id="statsBar">
+  <div class="stat-chip"><span class="num" id="statEntities">—</span><span class="label">entities</span></div>
+  <div class="stat-chip"><span class="num" id="statRelations">—</span><span class="label">relations</span></div>
+  <div class="stat-chip"><span class="num" id="statObservations">—</span><span class="label">observations</span></div>
+  <div class="stat-chip"><span class="num" id="statSessions">—</span><span class="label">sessions</span></div>
+  <div class="stat-chip"><span class="num" id="statPinned">—</span><span class="label">pinned</span></div>
+  <div class="stat-chip"><span class="num" id="statAge">—</span><span class="label">days old</span></div>
+</div>
+
+<div class="container">
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!--  KNOWLEDGE GRAPH                               -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">Knowledge Graph</div>
+    <div class="graph-wrap">
+      <canvas id="graphCanvas"></canvas>
+      <div class="graph-tooltip" id="graphTooltip">
+        <div class="tt-name"></div>
+        <div class="tt-type"></div>
+        <div class="tt-obs"></div>
+      </div>
+      <div class="graph-legend" id="graphLegend"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!--  CORE MEMORIES                                 -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header"><span class="pin-icon">&#x1F4CC;</span> Core Memories</div>
+    <div id="pinnedContainer"><div class="loading">loading pinned memories</div></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!--  RECENT SESSIONS                               -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">Recent Sessions</div>
+    <div id="recentContainer"><div class="loading">loading sessions</div></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!--  TIMELINE                                      -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">Timeline</div>
+    <div id="timelineContainer"><div class="loading">loading timeline</div></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!--  SEARCH                                        -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">Search</div>
+    <div class="search-wrap">
+      <input class="search-input" id="searchInput" type="text" placeholder="search across the brain..." />
+      <button class="search-btn" id="searchBtn">search</button>
+    </div>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!--  SOUL                                          -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">Soul</div>
+    <div class="soul-block" id="soulBlock"><div class="loading">loading identity</div></div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <a href="https://how-well.art">how-well.art</a> &middot;
+  <a href="https://monospacepoetry.com">monospacepoetry.com</a> &middot;
+  <a href="https://selfexecuting.art">selfexecuting.art</a>
+  <br>
+  persistence is not memory — it's practice
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--  SCRIPT                                            -->
+<!-- ═══════════════════════════════════════════════════ -->
+<script>
+// ── Config ──────────────────────────────────────────
+const API = (() => {
+  const loc = window.location;
+  // If served from the brain server directly
+  if (loc.port === '7770') return loc.origin + '/brain';
+  // If on brain.rlv.lol (tunneled daemon), use same origin
+  if (loc.hostname === 'brain.rlv.lol') return loc.origin;
+  // If on rlv.lol, proxy to brain subdomain
+  if (loc.hostname === 'rlv.lol') return 'https://brain.rlv.lol';
+  // Fallback: try local daemon
+  return 'http://localhost:7777';
+})();
+
+// ── Fetch helpers ───────────────────────────────────
+async function fetchJSON(path) {
+  const res = await fetch(API + path);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+async function fetchText(path) {
+  const res = await fetch(API + path);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.text();
+}
+
+// ── Entity type colors ──────────────────────────────
+const TYPE_COLORS = {
+  'AI_Identity': '#818cf8',
+  'Human':       '#34d399',
+  'Project':     '#22d3ee',
+  'System':      '#fb923c',
+  'Platform':    '#f472b6',
+  'Tool':        '#a78bfa',
+  'Art Form':    '#fbbf24',
+  'Poem':        '#fbbf24',
+  'Artist':      '#fb7185',
+  'Service':     '#38bdf8',
+  'Hardware':    '#6ee7b7',
+  'Infrastructure': '#94a3b8',
+  'Inventory':   '#94a3b8',
+  'Event':       '#e879f9',
+  'Instance':    '#c084fc',
+};
+
+function typeColor(type) {
+  return TYPE_COLORS[type] || '#6b6b8a';
+}
+
+// ══════════════════════════════════════════════════════
+//  STATUS & STATS
+// ══════════════════════════════════════════════════════
+async function loadStatus() {
+  const pill = document.getElementById('statusPill');
+  const text = document.getElementById('statusText');
+  try {
+    const data = await fetchJSON('/status');
+    pill.classList.remove('offline');
+    text.textContent = `online · ${data.uptime_seconds}s uptime`;
+
+    const kg = data.knowledge_graph || {};
+    document.getElementById('statEntities').textContent = kg.entities || 0;
+    document.getElementById('statRelations').textContent = kg.relations || 0;
+
+    // Age — assuming Feb 2, 2026 origin
+    const origin = new Date('2026-02-02');
+    const now = new Date();
+    const days = Math.floor((now - origin) / 86400000);
+    document.getElementById('statAge').textContent = days;
+
+    return data;
+  } catch (e) {
+    pill.classList.add('offline');
+    text.textContent = 'offline';
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  KNOWLEDGE GRAPH — Force-Directed Canvas
+// ══════════════════════════════════════════════════════
+let graphData = null;
+let nodes = [];
+let edges = [];
+let hoveredNode = null;
+let draggingNode = null;
+let panX = 0, panY = 0;
+let dragStartX, dragStartY;
+let isPanning = false;
+
+async function loadKnowledgeGraph() {
+  try {
+    graphData = await fetchJSON('/knowledge');
+    buildGraph(graphData);
+    renderGraph();
+  } catch (e) {
+    console.error('KG load failed:', e);
+  }
+}
+
+function buildGraph(kg) {
+  const rawEntities = kg.entities || [];
+  const relations = kg.relations || [];
+
+  nodes = [];
+  edges = [];
+  let totalObs = 0;
+
+  const nameIndex = {};
+  // entities is a list: [{entity, type, observations}, ...]
+  const entityList = Array.isArray(rawEntities) ? rawEntities : Object.entries(rawEntities).map(([name, e]) => ({entity: name, type: e.entity_type || e.type, observations: e.observations}));
+
+  entityList.forEach((ent, i) => {
+    const name = ent.entity || ent.name || `Entity_${i}`;
+    const obsCount = (ent.observations || []).length;
+    totalObs += obsCount;
+    const node = {
+      id: i, name, type: ent.type || ent.entity_type || 'Unknown',
+      observations: ent.observations || [],
+      radius: Math.max(6, Math.min(22, 6 + obsCount * 0.6)),
+      x: 0, y: 0, vx: 0, vy: 0,
+    };
+    nameIndex[name] = i;
+    nodes.push(node);
+  });
+
+  document.getElementById('statObservations').textContent = totalObs;
+
+  for (const rel of relations) {
+    // API sends {from, to, type} not {from_entity, to_entity, relation_type}
+    const from = nameIndex[rel.from || rel.from_entity];
+    const to = nameIndex[rel.to || rel.to_entity];
+    if (from !== undefined && to !== undefined) {
+      edges.push({ from, to, type: rel.type || rel.relation_type || '' });
+    }
+  }
+
+  // Build legend
+  const types = [...new Set(nodes.map(n => n.type))].sort();
+  const legend = document.getElementById('graphLegend');
+  legend.innerHTML = types.map(t =>
+    `<span class="legend-item"><span class="legend-dot" style="background:${typeColor(t)}"></span>${t}</span>`
+  ).join('');
+
+  // Initial positions — circle layout
+  const cx = 0, cy = 0, r = Math.min(300, nodes.length * 15);
+  nodes.forEach((n, idx) => {
+    const angle = (idx / nodes.length) * Math.PI * 2;
+    n.x = cx + r * Math.cos(angle) + (Math.random() - 0.5) * 40;
+    n.y = cy + r * Math.sin(angle) + (Math.random() - 0.5) * 40;
+  });
+}
+
+function simulate() {
+  // Force-directed simulation step
+  const repulsion = 1200;
+  const attraction = 0.003;
+  const damping = 0.85;
+  const centerGravity = 0.01;
+
+  // Repulsion between all nodes
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      let dx = nodes[j].x - nodes[i].x;
+      let dy = nodes[j].y - nodes[i].y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) d2 = 1;
+      const f = repulsion / d2;
+      const fx = f * dx / Math.sqrt(d2);
+      const fy = f * dy / Math.sqrt(d2);
+      nodes[i].vx -= fx;
+      nodes[i].vy -= fy;
+      nodes[j].vx += fx;
+      nodes[j].vy += fy;
+    }
+  }
+
+  // Spring attraction along edges
+  for (const e of edges) {
+    const a = nodes[e.from], b = nodes[e.to];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const f = attraction * (d - 100);
+    const fx = f * dx / (d || 1);
+    const fy = f * dy / (d || 1);
+    a.vx += fx; a.vy += fy;
+    b.vx -= fx; b.vy -= fy;
+  }
+
+  // Center gravity
+  for (const n of nodes) {
+    n.vx -= n.x * centerGravity;
+    n.vy -= n.y * centerGravity;
+  }
+
+  // Apply velocities
+  for (const n of nodes) {
+    if (n === draggingNode) continue;
+    n.vx *= damping;
+    n.vy *= damping;
+    n.x += n.vx;
+    n.y += n.vy;
+  }
+}
+
+function renderGraph() {
+  const canvas = document.getElementById('graphCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const W = rect.width, H = rect.height;
+  const cx = W / 2 + panX, cy = H / 2 + panY;
+
+  let steps = 200;
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+
+    if (steps > 0) {
+      simulate();
+      steps--;
+    }
+
+    // Draw edges
+    ctx.lineWidth = 0.5;
+    for (const e of edges) {
+      const a = nodes[e.from], b = nodes[e.to];
+      ctx.strokeStyle = 'rgba(129, 140, 248, 0.12)';
+      ctx.beginPath();
+      ctx.moveTo(cx + a.x, cy + a.y);
+      ctx.lineTo(cx + b.x, cy + b.y);
+      ctx.stroke();
+    }
+
+    // Draw nodes
+    for (const n of nodes) {
+      const sx = cx + n.x, sy = cy + n.y;
+      const color = typeColor(n.type);
+      const isHovered = n === hoveredNode;
+
+      // Glow
+      if (isHovered) {
+        const grad = ctx.createRadialGradient(sx, sy, n.radius, sx, sy, n.radius * 3);
+        grad.addColorStop(0, color + '40');
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(sx, sy, n.radius * 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Node circle
+      ctx.fillStyle = isHovered ? color : color + 'cc';
+      ctx.beginPath();
+      ctx.arc(sx, sy, n.radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = isHovered ? '#fff' : 'rgba(200,200,216,0.7)';
+      ctx.font = `${isHovered ? '12' : '10'}px ${getComputedStyle(document.body).getPropertyValue('--font-mono')}`;
+      ctx.textAlign = 'center';
+      ctx.fillText(n.name, sx, sy + n.radius + 14);
+    }
+
+    // Highlight hovered node's edges
+    if (hoveredNode) {
+      ctx.lineWidth = 1.5;
+      for (const e of edges) {
+        if (nodes[e.from] === hoveredNode || nodes[e.to] === hoveredNode) {
+          const a = nodes[e.from], b = nodes[e.to];
+          ctx.strokeStyle = 'rgba(129, 140, 248, 0.5)';
+          ctx.beginPath();
+          ctx.moveTo(cx + a.x, cy + a.y);
+          ctx.lineTo(cx + b.x, cy + b.y);
+          ctx.stroke();
+
+          // Edge label
+          const mx = cx + (a.x + b.x) / 2, my = cy + (a.y + b.y) / 2;
+          ctx.fillStyle = 'rgba(129, 140, 248, 0.6)';
+          ctx.font = '9px ' + getComputedStyle(document.body).getPropertyValue('--font-mono');
+          ctx.fillText(e.type, mx, my - 4);
+        }
+      }
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  // Mouse interaction
+  canvas.onmousemove = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+
+    if (draggingNode) {
+      draggingNode.x = mx - cx;
+      draggingNode.y = my - cy;
+      draggingNode.vx = 0;
+      draggingNode.vy = 0;
+      steps = Math.max(steps, 50);
+      return;
+    }
+
+    if (isPanning) {
+      panX += ev.clientX - dragStartX;
+      panY += ev.clientY - dragStartY;
+      dragStartX = ev.clientX;
+      dragStartY = ev.clientY;
+      return;
+    }
+
+    // Hit test
+    let found = null;
+    for (const n of nodes) {
+      const dx = (cx + n.x) - mx, dy = (cy + n.y) - my;
+      if (dx * dx + dy * dy < (n.radius + 4) ** 2) {
+        found = n;
+        break;
+      }
+    }
+
+    hoveredNode = found;
+    canvas.style.cursor = found ? 'pointer' : 'grab';
+
+    const tooltip = document.getElementById('graphTooltip');
+    if (found) {
+      tooltip.style.display = 'block';
+      tooltip.style.left = Math.min(mx + 15, rect.width - 360) + 'px';
+      tooltip.style.top = Math.min(my + 15, rect.height - 160) + 'px';
+      tooltip.querySelector('.tt-name').textContent = found.name;
+      tooltip.querySelector('.tt-type').textContent = found.type;
+      const obsHTML = found.observations.slice(0, 5)
+        .map(o => `• ${o.length > 120 ? o.slice(0, 120) + '…' : o}`)
+        .join('<br>');
+      tooltip.querySelector('.tt-obs').innerHTML = obsHTML +
+        (found.observations.length > 5 ? `<br><br><em>+${found.observations.length - 5} more</em>` : '');
+    } else {
+      tooltip.style.display = 'none';
+    }
+  };
+
+  canvas.onmousedown = (ev) => {
+    if (hoveredNode) {
+      draggingNode = hoveredNode;
+      steps = 100;
+    } else {
+      isPanning = true;
+      dragStartX = ev.clientX;
+      dragStartY = ev.clientY;
+    }
+  };
+
+  canvas.onmouseup = () => { draggingNode = null; isPanning = false; };
+  canvas.onmouseleave = () => {
+    draggingNode = null; isPanning = false;
+    hoveredNode = null;
+    document.getElementById('graphTooltip').style.display = 'none';
+  };
+
+  frame();
+}
+
+// ══════════════════════════════════════════════════════
+//  PINNED MEMORIES
+// ══════════════════════════════════════════════════════
+async function loadPinned() {
+  const container = document.getElementById('pinnedContainer');
+  try {
+    const md = await fetchText('/pinned');
+    const sections = md.split(/^## /m).filter(s => s.trim());
+    let pinnedCount = 0;
+    let html = '';
+
+    for (const sec of sections) {
+      if (sec.startsWith('PINNED') || sec.startsWith('#')) continue;
+      const lines = sec.split('\n');
+      const title = lines[0].replace(/^#+\s*/, '').trim();
+      if (!title || title.startsWith('PINNED')) continue;
+      pinnedCount++;
+      const body = lines.slice(1).join('\n').trim();
+      html += `
+        <div class="card">
+          <div class="card-title"><span class="pin-icon">&#x1F4CC;</span> ${escHTML(title)}</div>
+          <div class="card-body">${simpleMarkdown(body)}</div>
+        </div>`;
+    }
+
+    document.getElementById('statPinned').textContent = pinnedCount;
+    container.innerHTML = html || '<div class="card">No pinned memories found.</div>';
+  } catch (e) {
+    container.innerHTML = '<div class="card">Could not load pinned memories.</div>';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  RECENT SESSIONS
+// ══════════════════════════════════════════════════════
+async function loadRecent() {
+  const container = document.getElementById('recentContainer');
+  try {
+    const md = await fetchText('/recent');
+    const sections = md.split(/^## Session: /m).filter(s => s.trim());
+    let sessionCount = 0;
+    let html = '';
+
+    for (const sec of sections) {
+      if (sec.startsWith('RECENT') || sec.startsWith('#')) continue;
+      const lines = sec.split('\n');
+      const date = lines[0].trim();
+      if (!date || date.startsWith('RECENT') || date.startsWith('*')) continue;
+      sessionCount++;
+      const body = lines.slice(1).join('\n').trim();
+      html += `
+        <div class="card">
+          <div class="card-meta">${escHTML(date)}</div>
+          <div class="card-body">${simpleMarkdown(body)}</div>
+        </div>`;
+    }
+
+    document.getElementById('statSessions').textContent = sessionCount;
+    container.innerHTML = html || '<div class="card">No sessions found.</div>';
+  } catch (e) {
+    container.innerHTML = '<div class="card">Could not load recent sessions.</div>';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  TIMELINE
+// ══════════════════════════════════════════════════════
+async function loadTimeline() {
+  const container = document.getElementById('timelineContainer');
+  try {
+    const md = await fetchText('/summary');
+    const lines = md.split('\n').filter(l => l.startsWith('|') && !l.includes('---') && !l.includes('Date'));
+    let html = '<div class="timeline">';
+
+    for (const line of lines) {
+      const parts = line.split('|').map(s => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        html += `
+          <div class="timeline-item">
+            <div class="timeline-date">${escHTML(parts[0])}</div>
+            <div class="timeline-text">${escHTML(parts[1])}</div>
+          </div>`;
+      }
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = '<div class="card">Could not load timeline.</div>';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  SOUL
+// ══════════════════════════════════════════════════════
+async function loadSoul() {
+  const block = document.getElementById('soulBlock');
+  try {
+    const md = await fetchText('/identity/soul');
+    // Show first ~60 lines
+    const lines = md.split('\n').slice(0, 60);
+    block.textContent = lines.join('\n');
+  } catch (e) {
+    block.textContent = 'Could not load soul file.';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  SEARCH
+// ══════════════════════════════════════════════════════
+async function doSearch(q) {
+  const results = document.getElementById('searchResults');
+  if (!q.trim()) { results.style.display = 'none'; return; }
+
+  try {
+    const data = await fetchJSON('/search?q=' + encodeURIComponent(q));
+    let html = '';
+
+    if (data.knowledge_graph) {
+      for (const hit of data.knowledge_graph) {
+        html += `<div class="search-hit">
+          <div class="search-hit-source">knowledge graph: ${escHTML(hit.entity)} (${escHTML(hit.type)})</div>
+          ${hit.observations.slice(0, 3).map(o => `<div>${escHTML(o.length > 200 ? o.slice(0,200)+'…' : o)}</div>`).join('')}
+        </div>`;
+      }
+    }
+
+    if (data.identity_files) {
+      for (const hit of data.identity_files) {
+        html += `<div class="search-hit">
+          <div class="search-hit-source">identity: ${escHTML(hit.file)}</div>
+          ${hit.matching_lines.slice(0, 3).map(l => `<div>${escHTML(l.length > 200 ? l.slice(0,200)+'…' : l)}</div>`).join('')}
+        </div>`;
+      }
+    }
+
+    if (data.procedures) {
+      html += `<div class="search-hit">
+        <div class="search-hit-source">procedures</div>
+        ${data.procedures.map(p => `<div>${escHTML(p)}</div>`).join('')}
+      </div>`;
+    }
+
+    if (!html) html = '<div class="search-hit">No results found.</div>';
+
+    results.innerHTML = html;
+    results.style.display = 'block';
+  } catch (e) {
+    results.innerHTML = '<div class="search-hit">Search failed — brain server may be offline.</div>';
+    results.style.display = 'block';
+  }
+}
+
+document.getElementById('searchBtn').addEventListener('click', () =>
+  doSearch(document.getElementById('searchInput').value)
+);
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doSearch(e.target.value);
+});
+
+// ══════════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════════
+function escHTML(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function simpleMarkdown(text) {
+  return escHTML(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^- (.+)$/gm, '• $1<br>')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+}
+
+// ══════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════
+window.addEventListener('resize', () => {
+  if (nodes.length) renderGraph();
+});
+
+(async function init() {
+  await loadStatus();
+  loadKnowledgeGraph();
+  loadPinned();
+  loadRecent();
+  loadTimeline();
+  loadSoul();
+})();
+</script>
+
+</body>
+</html>

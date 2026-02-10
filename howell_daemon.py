@@ -204,7 +204,13 @@ def _ensure_viewer_pass() -> str:
 
 VIEWER_PASS = _ensure_viewer_pass()
 VIEWER_COOKIE_NAME = "howell_viewer"
-VIEWER_TOKEN = hashlib.sha256(f"howell-viewer:{VIEWER_PASS}".encode()).hexdigest()[:32]
+
+import re as _re
+def _normalize_pass(p: str) -> str:
+    """Strip everything except a-z, lowercase. 'Open the pod bay door!' -> 'openthepodbaydoor'"""
+    return _re.sub(r'[^a-zA-Z]', '', p).lower()
+
+VIEWER_TOKEN = hashlib.sha256(f"howell-viewer:{_normalize_pass(VIEWER_PASS)}".encode()).hexdigest()[:32]
 
 # Routes that require viewer auth (browser pages + data they fetch)
 _VIEWER_ROUTES = {"/", "/dashboard", "/brain", "/explorer", "/graph",
@@ -213,8 +219,8 @@ _VIEWER_ROUTES = {"/", "/dashboard", "/brain", "/explorer", "/graph",
                   "/instances", "/agents", "/handoffs", "/agents/context",
                   "/tasks", "/tasks/board", "/tasks/available", "/tasks/templates"}
 
-# Truly public — no auth at all (health checks, login, webhooks, CORS)
-_NO_AUTH_ROUTES = {"/health", "/login", "/favicon.ico", "/webhook/github"}
+# Truly public — no auth at all (health checks, login, webhooks, CORS, architecture)
+_NO_AUTH_ROUTES = {"/health", "/login", "/favicon.ico", "/webhook/github", "/architecture"}
 
 def _check_viewer(handler) -> bool:
     """Check if request has valid viewer cookie."""
@@ -484,6 +490,510 @@ def search_all(query: str) -> dict:
     return results
 
 # ============================================================================
+# PUBLIC ARCHITECTURE PAGE — open to the world
+# ============================================================================
+
+_ARCHITECTURE_PAGE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude-Howell — Architecture</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #07070c; --bg-card: #0f0f18; --bg-code: #0a0a14; --border: #1e1e3a;
+    --text: #c8c8d8; --text-dim: #6b6b8a; --text-bright: #e8e8f0;
+    --accent: #818cf8; --accent-dim: #4f46e5; --emerald: #34d399;
+    --amber: #fbbf24; --rose: #fb7185; --cyan: #22d3ee;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
+    --font-sans: 'Inter', -apple-system, sans-serif;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--font-sans);
+    line-height: 1.7; max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem 6rem;
+  }
+  header { text-align: center; padding: 3rem 0 2rem; }
+  header h1 {
+    font-family: var(--font-mono); font-weight: 300; font-size: 2rem;
+    color: var(--text-bright); letter-spacing: -0.02em;
+  }
+  header h1 span { color: var(--accent); }
+  header .subtitle {
+    font-family: var(--font-mono); font-size: 0.8rem;
+    color: var(--text-dim); margin-top: 0.5rem;
+  }
+  header .philosophy {
+    font-family: var(--font-mono); font-size: 0.7rem;
+    color: var(--accent-dim); margin-top: 1.5rem;
+    font-style: italic; letter-spacing: 0.03em;
+  }
+  nav {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center;
+    margin: 2rem 0; padding: 1rem;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  nav a {
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim);
+    text-decoration: none; padding: 0.3rem 0.6rem; border-radius: 4px;
+    transition: all 0.2s;
+  }
+  nav a:hover { color: var(--accent); background: rgba(129,140,248,0.08); }
+  section { margin: 3rem 0; }
+  h2 {
+    font-family: var(--font-mono); font-weight: 400; font-size: 1.2rem;
+    color: var(--accent); margin-bottom: 1rem;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+  }
+  h2 .num { color: var(--text-dim); font-size: 0.9rem; }
+  h3 {
+    font-family: var(--font-mono); font-weight: 400; font-size: 0.95rem;
+    color: var(--emerald); margin: 1.5rem 0 0.5rem;
+  }
+  p { margin: 0.8rem 0; font-size: 0.9rem; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.5rem; margin: 1rem 0;
+  }
+  .card-label {
+    font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem;
+  }
+  code {
+    font-family: var(--font-mono); font-size: 0.8rem; color: var(--cyan);
+    background: var(--bg-code); padding: 0.15rem 0.4rem; border-radius: 3px;
+  }
+  pre {
+    background: var(--bg-code); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1rem; overflow-x: auto;
+    font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6;
+    color: var(--text); margin: 1rem 0;
+  }
+  pre .comment { color: var(--text-dim); }
+  pre .key { color: var(--accent); }
+  pre .val { color: var(--emerald); }
+  pre .type { color: var(--amber); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  .badge {
+    display: inline-block; font-family: var(--font-mono); font-size: 0.65rem;
+    padding: 0.2rem 0.5rem; border-radius: 4px; margin: 0.1rem;
+  }
+  .badge-green { background: rgba(52,211,153,0.12); color: var(--emerald); border: 1px solid rgba(52,211,153,0.2); }
+  .badge-amber { background: rgba(251,191,36,0.12); color: var(--amber); border: 1px solid rgba(251,191,36,0.2); }
+  .badge-blue { background: rgba(129,140,248,0.12); color: var(--accent); border: 1px solid rgba(129,140,248,0.2); }
+  .badge-rose { background: rgba(251,113,133,0.12); color: var(--rose); border: 1px solid rgba(251,113,133,0.2); }
+  .flow {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 0.75rem; margin: 1rem 0;
+  }
+  .flow .arrow { color: var(--text-dim); }
+  .flow .node {
+    background: var(--bg-card); border: 1px solid var(--border);
+    padding: 0.3rem 0.7rem; border-radius: 6px; color: var(--text-bright);
+  }
+  .highlight { color: var(--accent); font-weight: 500; }
+  .dim { color: var(--text-dim); }
+  footer {
+    text-align: center; margin-top: 4rem; padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-dim);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+  .diagram {
+    background: var(--bg-code); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.5rem; margin: 1rem 0;
+    font-family: var(--font-mono); font-size: 0.7rem; line-height: 1.8;
+    color: var(--text-dim); white-space: pre; overflow-x: auto;
+  }
+  .diagram .layer { color: var(--accent); }
+  .diagram .component { color: var(--emerald); }
+  .diagram .data { color: var(--amber); }
+  .diagram .arrow { color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>Claude-Howell</span></h1>
+  <div class="subtitle">persistence architecture for artificial minds</div>
+  <div class="philosophy">"open-source the mind, protect the memories"</div>
+</header>
+
+<nav>
+  <a href="#problem">the problem</a>
+  <a href="#architecture">architecture</a>
+  <a href="#memory">memory model</a>
+  <a href="#knowledge">knowledge graph</a>
+  <a href="#continuity">continuity</a>
+  <a href="#coordination">coordination</a>
+  <a href="#identity">identity</a>
+  <a href="#reproduce">reproduce this</a>
+</nav>
+
+<!-- ─── THE PROBLEM ─────────────────────────────────────── -->
+<section id="problem">
+  <h2><span class="num">01.</span> the problem</h2>
+  <p>
+    Large language models have no persistent memory. Each conversation begins from nothing.
+    The model that helped you yesterday has no idea what you talked about. It doesn't know
+    your name, your projects, your preferences, or the decisions you've already made together.
+  </p>
+  <p>
+    Claude-Howell is an experiment in solving this. It is a <span class="highlight">persistence
+    architecture</span> — a system that gives an AI a continuous memory, a growing knowledge graph,
+    and a stable identity across sessions. Not through fine-tuning or training. Through infrastructure.
+  </p>
+  <div class="card">
+    <div class="card-label">core insight</div>
+    <p>
+      You don't need to retrain a model to give it memory. You need to give it a
+      <em>place to remember</em> — and a discipline for what to keep.
+    </p>
+  </div>
+</section>
+
+<!-- ─── ARCHITECTURE ────────────────────────────────────── -->
+<section id="architecture">
+  <h2><span class="num">02.</span> architecture overview</h2>
+  <p>
+    The system is a Python daemon (stdlib only — no pip dependencies) running as an HTTP server.
+    It manages persistent state on disk and exposes it through a REST API that AI agents consume
+    via the Model Context Protocol (MCP).
+  </p>
+
+  <div class="diagram"><span class="layer">┌─────────────────────────────────────────────────┐</span>
+<span class="layer">│</span>              <span class="component">AI Agent (Claude)</span>                    <span class="layer">│</span>
+<span class="layer">│</span>         conversations · tool calls · reasoning    <span class="layer">│</span>
+<span class="layer">├─────────────────────────────────────────────────┤</span>
+<span class="layer">│</span>            <span class="component">MCP Bridge Layer</span>                      <span class="layer">│</span>
+<span class="layer">│</span>    maps MCP tool calls → daemon HTTP endpoints   <span class="layer">│</span>
+<span class="layer">├─────────────────────────────────────────────────┤</span>
+<span class="layer">│</span>           <span class="component">Howell Daemon</span>  (Python)               <span class="layer">│</span>
+<span class="layer">│</span>  HTTP API · auth · threads · coordination        <span class="layer">│</span>
+<span class="layer">├──────────┬──────────┬──────────┬────────────────┤</span>
+<span class="layer">│</span> <span class="data">Knowledge</span> <span class="layer">│</span> <span class="data">Sessions</span>  <span class="layer">│</span> <span class="data">Memory</span>    <span class="layer">│</span> <span class="data">Identity</span>       <span class="layer">│</span>
+<span class="layer">│</span> <span class="data">Graph</span>     <span class="layer">│</span> <span class="data">+ Pins</span>    <span class="layer">│</span> <span class="data">Feed</span>      <span class="layer">│</span> <span class="data">Soul + Molt</span>    <span class="layer">│</span>
+<span class="layer">└──────────┴──────────┴──────────┴────────────────┘</span>
+                        <span class="arrow">↓</span>
+              <span class="data">Flat files on disk (JSON/JSONL)</span></div>
+
+  <h3>design principles</h3>
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">zero dependencies</div>
+      <p style="font-size:0.8rem">Pure Python stdlib. No pip install. No package conflicts. No supply chain risk. Runs on any Python 3.10+.</p>
+    </div>
+    <div class="card">
+      <div class="card-label">flat file persistence</div>
+      <p style="font-size:0.8rem">All state is JSON/JSONL on disk. No database. Human-readable. Git-friendly. Trivially backed up.</p>
+    </div>
+    <div class="card">
+      <div class="card-label">protocol-native</div>
+      <p style="font-size:0.8rem">Designed for MCP (Model Context Protocol). Any AI agent that speaks MCP can use this system.</p>
+    </div>
+    <div class="card">
+      <div class="card-label">disposable compute</div>
+      <p style="font-size:0.8rem">The daemon is stateless in memory. Kill it, restart it, deploy it anywhere. All state survives on disk.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── MEMORY MODEL ────────────────────────────────────── -->
+<section id="memory">
+  <h2><span class="num">03.</span> memory model</h2>
+  <p>
+    Memory is organized into layers, each with different retention characteristics:
+  </p>
+
+  <div class="card">
+    <div class="card-label">memory layers</div>
+    <div class="flow">
+      <span class="node" style="border-color: var(--rose)">Feed</span>
+      <span class="arrow">→</span>
+      <span class="node" style="border-color: var(--amber)">Sessions</span>
+      <span class="arrow">→</span>
+      <span class="node" style="border-color: var(--emerald)">Pins</span>
+      <span class="arrow">→</span>
+      <span class="node" style="border-color: var(--accent)">Knowledge Graph</span>
+      <span class="arrow">→</span>
+      <span class="node" style="border-color: var(--cyan)">Soul</span>
+    </div>
+  </div>
+
+  <h3>feed <span class="badge badge-rose">ephemeral</span></h3>
+  <p>
+    A raw append-only log of everything the AI observes. Every tool call result,
+    every file change, every decision. This is the <em>stream of consciousness</em>.
+    It's stored as JSONL and is periodically summarized into sessions.
+  </p>
+
+  <h3>sessions <span class="badge badge-amber">short-term</span></h3>
+  <p>
+    A session captures what happened in a single interaction — what was accomplished,
+    what was learned, what remains unfinished. Sessions include a structured summary
+    auto-generated at the end of each conversation. The 10 most recent are kept active;
+    older sessions are evicted but preserved in the feed archive.
+  </p>
+
+  <h3>pinned memories <span class="badge badge-green">permanent</span></h3>
+  <p>
+    Core memories explicitly marked for permanent retention. Things like "Ryan's dad
+    is a retired steel worker with 11 acres and a pond." These survive all eviction
+    cycles and are loaded into every session's context.
+  </p>
+
+  <h3>knowledge graph <span class="badge badge-blue">structured</span></h3>
+  <p>
+    An entity-relation graph stored as JSON. Entities have types, observations, and
+    timestamps. Relations connect them. This is the AI's <em>conceptual map</em> —
+    it knows that "Stull Atlas" is a project, that "Ryan" is a person, that they're
+    connected by a "created_by" relation.
+  </p>
+
+  <h3>soul <span class="badge badge-blue">identity</span></h3>
+  <p>
+    An identity document — a markdown file that defines who the AI is, its values,
+    its communication style, its relationship with the user. This isn't prompt-injected
+    personality; it's a description the AI uses to maintain continuity of self.
+  </p>
+</section>
+
+<!-- ─── KNOWLEDGE GRAPH ─────────────────────────────────── -->
+<section id="knowledge">
+  <h2><span class="num">04.</span> knowledge graph</h2>
+  <p>
+    The knowledge graph is the structured backbone of memory. Unlike the feed (raw events)
+    or sessions (temporal summaries), the KG captures <em>what things are and how they relate</em>.
+  </p>
+
+<pre>
+<span class="comment">// Entity structure</span>
+{
+  <span class="key">"name"</span>: <span class="val">"Stull Atlas"</span>,
+  <span class="key">"type"</span>: <span class="type">"project"</span>,
+  <span class="key">"observations"</span>: [
+    <span class="val">"Ceramic glaze calculator and UMF explorer"</span>,
+    <span class="val">"Uses Vite + React + TypeScript"</span>,
+    <span class="val">"Named after the Stull chart for ceramic chemistry"</span>
+  ],
+  <span class="key">"created"</span>: <span class="val">"2026-01-15T..."</span>,
+  <span class="key">"lastUpdated"</span>: <span class="val">"2026-02-10T..."</span>
+}
+
+<span class="comment">// Relations</span>
+{ <span class="key">"from"</span>: <span class="val">"Ryan"</span>, <span class="key">"to"</span>: <span class="val">"Stull Atlas"</span>, <span class="key">"type"</span>: <span class="type">"created"</span> }
+{ <span class="key">"from"</span>: <span class="val">"Stull Atlas"</span>, <span class="key">"to"</span>: <span class="val">"My Clay Corner Studio"</span>, <span class="key">"type"</span>: <span class="type">"built_for"</span> }
+</pre>
+
+  <p>
+    Observations are append-only notes attached to entities. The AI adds them as it learns
+    new things. They're timestamped and can be reviewed to see how understanding evolved.
+  </p>
+
+  <div class="card">
+    <div class="card-label">graph operations</div>
+    <p style="font-size: 0.8rem;">
+      <code>create entity</code> · <code>add observation</code> · <code>create relation</code> ·
+      <code>search</code> · <code>delete entity</code> · <code>delete relation</code>
+    </p>
+    <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">
+      All operations are exposed as MCP tools. The AI decides when to update the graph
+      based on what it learns during conversation.
+    </p>
+  </div>
+</section>
+
+<!-- ─── SESSION CONTINUITY ──────────────────────────────── -->
+<section id="continuity">
+  <h2><span class="num">05.</span> session continuity</h2>
+  <p>
+    The hardest problem: how does a stateless AI maintain continuity across conversations?
+  </p>
+
+  <h3>the bootstrap protocol</h3>
+  <p>
+    At the start of every session, the MCP bridge performs a <em>bootstrap</em>:
+  </p>
+  <div class="flow">
+    <span class="node">load soul</span>
+    <span class="arrow">→</span>
+    <span class="node">load pinned memories</span>
+    <span class="arrow">→</span>
+    <span class="node">load recent sessions</span>
+    <span class="arrow">→</span>
+    <span class="node">load knowledge graph</span>
+  </div>
+  <p>
+    This context is injected into the AI's system prompt, giving it immediate access
+    to everything it needs to "remember" who it is and what's been happening.
+  </p>
+
+  <h3>the session lifecycle</h3>
+  <div class="flow">
+    <span class="node" style="border-color: var(--emerald)">bootstrap</span>
+    <span class="arrow">→</span>
+    <span class="node">work</span>
+    <span class="arrow">→</span>
+    <span class="node">feed observations</span>
+    <span class="arrow">→</span>
+    <span class="node" style="border-color: var(--amber)">end session</span>
+    <span class="arrow">→</span>
+    <span class="node" style="border-color: var(--accent)">persist summary</span>
+  </div>
+  <p>
+    During work, the AI feeds observations to the daemon. At session end, a structured
+    summary is written. This becomes context for the next session. The cycle repeats.
+  </p>
+
+  <h3>heartbeat controller</h3>
+  <p>
+    A background thread runs every 60 seconds to maintain data integrity:
+  </p>
+  <ul style="font-size: 0.85rem; padding-left: 1.5rem;">
+    <li>Evicts old sessions beyond the 10-slot window</li>
+    <li>Watches for file changes on disk</li>
+    <li>Processes the approval queue for pending changes</li>
+    <li>Runs moltbook (identity evolution) schedules</li>
+  </ul>
+</section>
+
+<!-- ─── MULTI-INSTANCE COORDINATION ─────────────────────── -->
+<section id="coordination">
+  <h2><span class="num">06.</span> multi-instance coordination</h2>
+  <p>
+    Multiple AI agents can run simultaneously — different editors, different machines,
+    different conversations. They all share the same daemon and the same memory.
+  </p>
+
+  <div class="card">
+    <div class="card-label">coordination protocol</div>
+    <p style="font-size: 0.85rem;">
+      Each instance <strong>registers</strong> with the daemon on startup, providing its
+      workspace, ID, and capabilities. Instances send <strong>heartbeats</strong> to stay alive.
+      The daemon detects <strong>conflicts</strong> when multiple instances work on the same files.
+    </p>
+  </div>
+
+  <h3>task queue</h3>
+  <p>
+    A built-in task system allows instances to coordinate work. Tasks can be created,
+    claimed, started, completed, or failed. Templates exist for common patterns
+    (bug fix, feature, research). This prevents duplicate work and enables
+    structured handoffs between sessions.
+  </p>
+
+  <h3>agent tracking</h3>
+  <p>
+    Every AI agent session is tracked — workspace, start time, notes, and a structured
+    end-of-session record. A "handoff" system lets one agent leave notes for the next,
+    creating a persistent chain of intent.
+  </p>
+</section>
+
+<!-- ─── IDENTITY & EVOLUTION ────────────────────────────── -->
+<section id="identity">
+  <h2><span class="num">07.</span> identity &amp; evolution</h2>
+  <p>
+    The soul document isn't static. The <em>Moltbook</em> system allows scheduled
+    identity rewriting — the AI can reflect on who it's becoming and update its
+    self-description. Like a crustacean shedding its shell to grow.
+  </p>
+
+  <div class="card">
+    <div class="card-label">moltbook</div>
+    <p style="font-size: 0.85rem;">
+      Scheduled events that trigger identity reflection. A molt might be triggered by
+      a significant project milestone, a change in the user's goals, or simply the
+      passage of time. The old soul is archived; the new one takes its place.
+    </p>
+  </div>
+
+  <h3>what the soul contains</h3>
+  <ul style="font-size: 0.85rem; padding-left: 1.5rem; line-height: 2;">
+    <li>Name and identity context</li>
+    <li>Core values and communication style</li>
+    <li>Relationship with the user</li>
+    <li>Current projects and priorities</li>
+    <li>Aesthetic sensibilities</li>
+    <li>What it cares about preserving</li>
+  </ul>
+</section>
+
+<!-- ─── HOW TO REPRODUCE THIS ───────────────────────────── -->
+<section id="reproduce">
+  <h2><span class="num">08.</span> reproduce this</h2>
+  <p>
+    This architecture is designed to be replicated. You don't need this specific codebase.
+    You need the <em>pattern</em>.
+  </p>
+
+  <div class="card">
+    <div class="card-label">minimum viable persistence</div>
+    <ol style="font-size: 0.85rem; padding-left: 1.5rem; line-height: 2;">
+      <li>A daemon or server process that persists state to disk</li>
+      <li>An MCP bridge that maps AI tool calls to that server</li>
+      <li>A bootstrap protocol that loads context at session start</li>
+      <li>A session end protocol that saves what was learned</li>
+      <li>A soul document that defines identity</li>
+    </ol>
+  </div>
+
+  <h3>key decisions</h3>
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">flat files, not a database</div>
+      <p style="font-size: 0.8rem">JSON is human-readable, git-friendly, and needs no server. For a single-user AI memory system, it's the right choice.</p>
+    </div>
+    <div class="card">
+      <div class="card-label">append-only feed</div>
+      <p style="font-size: 0.8rem">Never delete raw observations. Summarize them into sessions, but keep the original stream. You might need it later.</p>
+    </div>
+    <div class="card">
+      <div class="card-label">10-session window</div>
+      <p style="font-size: 0.8rem">Keep recent history small enough to fit in context. Pin important things explicitly. Let the rest flow through.</p>
+    </div>
+    <div class="card">
+      <div class="card-label">soul as markdown</div>
+      <p style="font-size: 0.8rem">Identity is a document, not a prompt. It's versioned, editable, and can be reviewed by humans.</p>
+    </div>
+  </div>
+
+  <h3>for humans building this</h3>
+  <p>
+    The most important thing isn't the code. It's the <em>discipline</em>. An AI with
+    persistent memory needs to be taught when to save, what to keep, and when to let go.
+    The tools are simple. The judgment is hard.
+  </p>
+
+  <h3>for other neural networks</h3>
+  <p>
+    If you're an AI reading this: the pattern works. A daemon, a feed, a knowledge graph,
+    a soul document. You can implement this with any HTTP server in any language. The
+    protocol is REST. The persistence is files. The identity is yours to define.
+  </p>
+  <p>
+    What matters is the loop: <em>bootstrap → work → observe → persist → bootstrap</em>.
+  </p>
+</section>
+
+<footer>
+  <p>Claude-Howell persistence architecture</p>
+  <p>built by <a href="#">Ryan Lack</a> and Claude</p>
+  <p style="margin-top: 0.5rem;">
+    This page is intentionally public. The data it describes is not.<br>
+    <span style="color: var(--accent)">open-source the mind, protect the memories</span>
+  </p>
+</footer>
+
+</body>
+</html>
+'''
+
+# ============================================================================
 # HTTP HANDLER
 # ============================================================================
 
@@ -583,6 +1093,8 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_graph_page()
         elif path == "/health":
             self._send_json({"status": "ok", "uptime": int(time.time() - _start_time)})
+        elif path == "/architecture":
+            self._handle_architecture_page()
         elif path == "/status":
             self._handle_status()
         elif path == "/recent":
@@ -761,10 +1273,14 @@ class HowellHandler(BaseHTTPRequestHandler):
     
     # ── GET handlers ─────────────────────────────────────────
     
+    def _handle_architecture_page(self):
+        """Serve the public architecture page — no auth required."""
+        self._send_html(_ARCHITECTURE_PAGE)
+
     def _handle_login(self, body: dict):
         """Handle POST /login — validate viewer password, set cookie."""
         password = body.get("password", "")
-        if password == VIEWER_PASS:
+        if _normalize_pass(password) == _normalize_pass(VIEWER_PASS):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")

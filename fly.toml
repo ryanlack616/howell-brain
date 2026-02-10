@@ -1,50 +1,23 @@
-# ============================================================================
-# HOWELL BRAIN — Fly.io Configuration
-# ============================================================================
-# Deploy: fly deploy --app howell-brain
-# Volume: fly volumes create howell_data --region iad --size 1
-# Secret: fly secrets set HOWELL_API_KEY=<key> --app howell-brain
-# ============================================================================
+# fly.toml app configuration file generated for howell-brain on 2026-02-10T15:40:27Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "howell-brain"
-primary_region = "iad"
+app = 'howell-brain'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "Dockerfile"
-
-[env]
-  HOWELL_PERSIST_ROOT = "/data"
-  PYTHONUNBUFFERED = "1"
-  TZ = "America/New_York"
 
 [http_service]
   internal_port = 7777
   force_https = true
-  auto_stop_machines = "off"       # 24/7 brain — never stop
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1         # Always at least 1 running
-  processes = ["app"]
-
-  [http_service.concurrency]
-    type = "connections"
-    hard_limit = 100
-    soft_limit = 50
+  min_machines_running = 0
+  processes = ['app']
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
-
-[mounts]
-  source = "howell_data"
-  destination = "/data"
-
-# Health check — daemon exposes /health publicly
-[checks]
-  [checks.health]
-    type = "http"
-    port = 7777
-    path = "/health"
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "15s"
+  memory_mb = 1024

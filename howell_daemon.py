@@ -146,11 +146,24 @@ API_KEY_FILE = PERSIST_ROOT / "bridge" / ".api_key"
 
 def _dashboard_path():
     """Get dashboard file path from config."""
-    return Path(get_full_config().get("dashboard_file", r"C:\Users\PC\Desktop\dashboard.html"))
+    cfg = get_full_config()
+    if "dashboard_file" in cfg:
+        return Path(cfg["dashboard_file"])
+    # Default: brain.html next to bridge state, fallback to next to code
+    p = BRIDGE_ROOT / "brain.html"
+    if not p.exists():
+        p = Path(__file__).parent / "brain.html"
+    return p
 
 def _graph_path():
     """Get graph file path from config."""
-    return Path(get_full_config().get("graph_file", r"C:\Users\PC\Desktop\graph.html"))
+    cfg = get_full_config()
+    if "graph_file" in cfg:
+        return Path(cfg["graph_file"])
+    p = BRIDGE_ROOT / "kg-explorer.html"
+    if not p.exists():
+        p = Path(__file__).parent / "kg-explorer.html"
+    return p
 
 # Public routes that don't need auth (dashboard assets + preflight + webhooks)
 _PUBLIC_ROUTES = {"/", "/dashboard", "/graph", "/explorer", "/favicon.ico", "/webhook/github",

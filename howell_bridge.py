@@ -87,9 +87,6 @@ def get_full_config() -> dict:
         "persist_root": str(_DEFAULT_PERSIST),
         "daemon_port": 7777,
         "daemon_host": "0.0.0.0",
-        "mcp_memory_file": r"C:\Users\PC\Documents\claude-memory\memory.jsonl",
-        "dashboard_file": r"C:\Users\PC\Desktop\dashboard.html",
-        "graph_file": r"C:\Users\PC\Desktop\graph.html",
         "comfyui_url": "http://127.0.0.1:8188",
         "max_recent_sessions": 5,
         "heartbeat_interval_hours": 6,
@@ -116,8 +113,8 @@ def _derive_paths():
     BRIDGE_ROOT = PERSIST_ROOT / "bridge"
     KNOWLEDGE_FILE = BRIDGE_ROOT / "knowledge.json"
     SESSION_LOG = BRIDGE_ROOT / "sessions.json"
-    MCP_MEMORY_FILE = Path(cfg["mcp_memory_file"])
     MEMORY_ROOT = PERSIST_ROOT / "memory"
+    MCP_MEMORY_FILE = Path(cfg["mcp_memory_file"]) if "mcp_memory_file" in cfg else MEMORY_ROOT / "memory.jsonl"
     RECENT_FILE = MEMORY_ROOT / "RECENT.md"
     SUMMARY_FILE = MEMORY_ROOT / "SUMMARY.md"
     PINNED_FILE = MEMORY_ROOT / "PINNED.md"

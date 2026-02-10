@@ -745,10 +745,6 @@ async function loadStatus() {
     pill.classList.remove('offline');
     text.textContent = `online · ${data.uptime_seconds}s uptime`;
 
-    const kg = data.knowledge_graph || {};
-    document.getElementById('statEntities').textContent = kg.entities || 0;
-    document.getElementById('statRelations').textContent = kg.relations || 0;
-
     // Age — assuming Feb 2, 2026 origin
     const origin = new Date('2026-02-02');
     const now = new Date();
@@ -811,6 +807,7 @@ function buildGraph(kg) {
     nodes.push(node);
   });
 
+  document.getElementById('statEntities').textContent = entityList.length;
   document.getElementById('statObservations').textContent = totalObs;
 
   for (const rel of relations) {
@@ -821,6 +818,8 @@ function buildGraph(kg) {
       edges.push({ from, to, type: rel.type || rel.relation_type || '' });
     }
   }
+
+  document.getElementById('statRelations').textContent = edges.length;
 
   // Build legend
   const types = [...new Set(nodes.map(n => n.type))].sort();

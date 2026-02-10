@@ -462,21 +462,118 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* collapsible */
-  .collapsible-toggle {
+  /* ═══════════════════════════════════════════════════ */
+  /*  COLLAPSIBLE SECTIONS & CARDS                       */
+  /* ═══════════════════════════════════════════════════ */
+  details.section-collapsible {
+    margin-top: 2.5rem;
+  }
+
+  details.section-collapsible > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
     cursor: pointer;
+    list-style: none;
     user-select: none;
   }
-  .collapsible-toggle::before {
-    content: '▸ ';
+
+  details.section-collapsible > summary::-webkit-details-marker { display: none; }
+  details.section-collapsible > summary::marker { display: none; content: ''; }
+
+  details.section-collapsible > summary::before {
+    content: '▸';
     display: inline-block;
-    transition: transform 0.2s;
+    font-size: 0.9rem;
+    color: var(--accent-dim);
+    transition: transform 0.2s ease;
+    width: 1em;
+    flex-shrink: 0;
   }
-  .collapsible-toggle.open::before {
-    content: '▾ ';
+
+  details.section-collapsible[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  details.section-collapsible > summary::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  details.section-collapsible > summary:hover {
+    color: var(--text);
+  }
+
+  details.section-collapsible > summary:hover::before {
+    color: var(--accent);
+  }
+
+  /* Individual collapsible cards (e.g. core memories) */
+  details.card-collapsible {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 0.75rem;
+    transition: border-color 0.2s;
+  }
+
+  details.card-collapsible:hover {
+    border-color: var(--accent-dim);
+  }
+
+  details.card-collapsible > summary {
+    padding: 1rem 1.25rem;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+
+  details.card-collapsible > summary::-webkit-details-marker { display: none; }
+  details.card-collapsible > summary::marker { display: none; content: ''; }
+
+  details.card-collapsible > summary::after {
+    content: '▸';
+    display: inline-block;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-left: auto;
+    transition: transform 0.2s ease;
+  }
+
+  details.card-collapsible[open] > summary::after {
+    transform: rotate(90deg);
+  }
+
+  details.card-collapsible > .card-content {
+    padding: 0 1.25rem 1.25rem;
+  }
+
+  details.card-collapsible > .card-content .card-body {
+    font-size: 0.82rem;
+    color: var(--text);
+    line-height: 1.65;
   }
 
   /* Responsive */
+  @media (max-width: 640px) {
+    details.card-collapsible > summary { padding: 0.75rem 1rem; }
+    details.card-collapsible > .card-content { padding: 0 1rem 1rem; }
+  }
   @media (max-width: 640px) {
     .graph-wrap { height: 350px; }
     .stats-bar { gap: 0.35rem; }
@@ -515,7 +612,7 @@
 <div class="container">
 
   <!-- ═══════════════════════════════════════════════ -->
-  <!--  KNOWLEDGE GRAPH                               -->
+  <!--  KNOWLEDGE GRAPH (always open)                 -->
   <!-- ═══════════════════════════════════════════════ -->
   <div class="section">
     <div class="section-header">Knowledge Graph</div>
@@ -531,31 +628,31 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->
-  <!--  CORE MEMORIES                                 -->
+  <!--  CORE MEMORIES (collapsible section + cards)   -->
   <!-- ═══════════════════════════════════════════════ -->
-  <div class="section">
-    <div class="section-header"><span class="pin-icon">&#x1F4CC;</span> Core Memories</div>
+  <details class="section-collapsible" open>
+    <summary><span class="pin-icon">&#x1F4CC;</span> Core Memories</summary>
     <div id="pinnedContainer"><div class="loading">loading pinned memories</div></div>
-  </div>
+  </details>
 
   <!-- ═══════════════════════════════════════════════ -->
-  <!--  RECENT SESSIONS                               -->
+  <!--  RECENT SESSIONS (collapsible)                 -->
   <!-- ═══════════════════════════════════════════════ -->
-  <div class="section">
-    <div class="section-header">Recent Sessions</div>
+  <details class="section-collapsible" open>
+    <summary>Recent Sessions</summary>
     <div id="recentContainer"><div class="loading">loading sessions</div></div>
-  </div>
+  </details>
 
   <!-- ═══════════════════════════════════════════════ -->
-  <!--  TIMELINE                                      -->
+  <!--  TIMELINE (collapsible)                        -->
   <!-- ═══════════════════════════════════════════════ -->
-  <div class="section">
-    <div class="section-header">Timeline</div>
+  <details class="section-collapsible">
+    <summary>Timeline</summary>
     <div id="timelineContainer"><div class="loading">loading timeline</div></div>
-  </div>
+  </details>
 
   <!-- ═══════════════════════════════════════════════ -->
-  <!--  SEARCH                                        -->
+  <!--  SEARCH (always open)                          -->
   <!-- ═══════════════════════════════════════════════ -->
   <div class="section">
     <div class="section-header">Search</div>
@@ -567,12 +664,12 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════ -->
-  <!--  SOUL                                          -->
+  <!--  SOUL (collapsible)                            -->
   <!-- ═══════════════════════════════════════════════ -->
-  <div class="section">
-    <div class="section-header">Soul</div>
+  <details class="section-collapsible">
+    <summary>Soul</summary>
     <div class="soul-block" id="soulBlock"><div class="loading">loading identity</div></div>
-  </div>
+  </details>
 
 </div>
 
@@ -973,10 +1070,10 @@ async function loadPinned() {
       pinnedCount++;
       const body = lines.slice(1).join('\n').trim();
       html += `
-        <div class="card">
-          <div class="card-title"><span class="pin-icon">&#x1F4CC;</span> ${escHTML(title)}</div>
-          <div class="card-body">${simpleMarkdown(body)}</div>
-        </div>`;
+        <details class="card-collapsible">
+          <summary><span class="pin-icon">&#x1F4CC;</span> ${escHTML(title)}</summary>
+          <div class="card-content"><div class="card-body">${simpleMarkdown(body)}</div></div>
+        </details>`;
     }
 
     document.getElementById('statPinned').textContent = pinnedCount;
@@ -1005,10 +1102,10 @@ async function loadRecent() {
       sessionCount++;
       const body = lines.slice(1).join('\n').trim();
       html += `
-        <div class="card">
-          <div class="card-meta">${escHTML(date)}</div>
-          <div class="card-body">${simpleMarkdown(body)}</div>
-        </div>`;
+        <details class="card-collapsible">
+          <summary>${escHTML(date)}</summary>
+          <div class="card-content"><div class="card-body">${simpleMarkdown(body)}</div></div>
+        </details>`;
     }
 
     document.getElementById('statSessions').textContent = sessionCount;

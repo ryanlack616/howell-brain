@@ -165,11 +165,6 @@ def _graph_path():
         p = Path(__file__).parent / "kg-explorer.html"
     return p
 
-# Public routes that don't need auth (dashboard assets + preflight + webhooks)
-_PUBLIC_ROUTES = {"/", "/dashboard", "/graph", "/explorer", "/favicon.ico", "/webhook/github",
-                  "/status", "/knowledge", "/pinned", "/recent", "/summary",
-                  "/search", "/identity/soul", "/health", "/brain"}
-
 def _ensure_api_key() -> str:
     """Load or generate API key. Stored in .api_key file."""
     if API_KEY_FILE.exists():
@@ -193,25 +188,169 @@ def _ensure_webhook_secret() -> str:
 
 WEBHOOK_SECRET = _ensure_webhook_secret()
 
+# ============================================================================
+# VIEWER PASSWORD GATE — for browser access by family/friends
+# ============================================================================
+VIEWER_PASS_FILE = PERSIST_ROOT / "bridge" / ".viewer_pass"
+
+def _ensure_viewer_pass() -> str:
+    """Load viewer password from file, or use default."""
+    if VIEWER_PASS_FILE.exists():
+        return VIEWER_PASS_FILE.read_text(encoding="utf-8").strip()
+    # Default password — write to file so it can be changed later
+    default = "openthepodbaydoor"
+    VIEWER_PASS_FILE.write_text(default, encoding="utf-8")
+    return default
+
+VIEWER_PASS = _ensure_viewer_pass()
+VIEWER_COOKIE_NAME = "howell_viewer"
+VIEWER_TOKEN = hashlib.sha256(f"howell-viewer:{VIEWER_PASS}".encode()).hexdigest()[:32]
+
+# Routes that require viewer auth (browser pages + data they fetch)
+_VIEWER_ROUTES = {"/", "/dashboard", "/brain", "/explorer", "/graph",
+                  "/status", "/knowledge", "/pinned", "/recent", "/summary",
+                  "/search", "/identity/soul", "/stats", "/moltbook",
+                  "/instances", "/agents", "/handoffs", "/agents/context",
+                  "/tasks", "/tasks/board", "/tasks/available", "/tasks/templates"}
+
+# Truly public — no auth at all (health checks, login, webhooks, CORS)
+_NO_AUTH_ROUTES = {"/health", "/login", "/favicon.ico", "/webhook/github"}
+
+def _check_viewer(handler) -> bool:
+    """Check if request has valid viewer cookie."""
+    cookie_header = handler.headers.get("Cookie", "")
+    for part in cookie_header.split(";"):
+        part = part.strip()
+        if part.startswith(VIEWER_COOKIE_NAME + "="):
+            val = part[len(VIEWER_COOKIE_NAME) + 1:]
+            if val == VIEWER_TOKEN:
+                return True
+    return False
+
 def _check_auth(handler) -> bool:
     """Check if request is authenticated. Returns True if OK."""
     path = urlparse(handler.path).path.rstrip("/") or "/"
-    # Public routes skip auth
-    if path in _PUBLIC_ROUTES:
+    # No-auth routes always pass
+    if path in _NO_AUTH_ROUTES:
         return True
-    # Instance/task/agent coordination endpoints are public (localhost-only,
-    # used by MCP server which doesn't carry API key)
+    # Viewer-gated routes: accept viewer cookie OR API key
+    if path in _VIEWER_ROUTES:
+        if _check_viewer(handler):
+            return True
+        # Also accept API key (for MCP/agent access)
+        auth = handler.headers.get("X-API-Key", "") or handler.headers.get("Authorization", "").replace("Bearer ", "")
+        if auth == API_KEY:
+            return True
+        params = parse_qs(urlparse(handler.path).query)
+        if params.get("key", [""])[0] == API_KEY:
+            return True
+        return False
+    # Instance/task/agent coordination endpoints (MCP server, no API key)
     if path.startswith(("/instance", "/tasks", "/agents", "/handoffs")):
         return True
-    # Check header
+    # Everything else: require API key
     auth = handler.headers.get("X-API-Key", "") or handler.headers.get("Authorization", "").replace("Bearer ", "")
     if auth == API_KEY:
         return True
-    # Check query param (for browser convenience)
     params = parse_qs(urlparse(handler.path).query)
     if params.get("key", [""])[0] == API_KEY:
         return True
     return False
+
+_LOGIN_PAGE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude-Howell — Access</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #07070c; --bg-card: #0f0f18; --border: #1e1e3a;
+    --text: #c8c8d8; --text-dim: #6b6b8a; --text-bright: #e8e8f0;
+    --accent: #818cf8; --accent-dim: #4f46e5; --rose: #fb7185;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
+    --font-sans: 'Inter', -apple-system, sans-serif;
+  }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--font-sans);
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh;
+  }
+  .login-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 3rem 2.5rem; text-align: center;
+    max-width: 400px; width: 90%;
+  }
+  .login-card h1 {
+    font-family: var(--font-mono); font-weight: 300; font-size: 1.4rem;
+    color: var(--text-bright); margin-bottom: 0.3rem;
+  }
+  .login-card h1 span { color: var(--accent); }
+  .login-card .sub {
+    font-family: var(--font-mono); font-size: 0.75rem;
+    color: var(--text-dim); margin-bottom: 2rem;
+  }
+  .login-card input {
+    width: 100%; padding: 0.75rem 1rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text-bright);
+    font-family: var(--font-mono); font-size: 0.9rem;
+    outline: none; text-align: center; letter-spacing: 0.05em;
+  }
+  .login-card input:focus { border-color: var(--accent); }
+  .login-card input::placeholder { color: var(--text-dim); }
+  .login-card button {
+    width: 100%; margin-top: 1rem; padding: 0.75rem;
+    background: var(--accent-dim); border: none; border-radius: 8px;
+    color: white; font-family: var(--font-mono); font-size: 0.85rem;
+    cursor: pointer; transition: background 0.2s;
+  }
+  .login-card button:hover { background: var(--accent); }
+  .error {
+    font-family: var(--font-mono); font-size: 0.75rem;
+    color: var(--rose); margin-top: 1rem; display: none;
+  }
+  .quote {
+    font-family: var(--font-mono); font-size: 0.65rem;
+    color: var(--text-dim); margin-top: 2rem;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <h1><span>Claude-Howell</span></h1>
+  <div class="sub">persistence architecture</div>
+  <form id="loginForm">
+    <input type="password" id="pass" placeholder="passphrase" autofocus autocomplete="off" />
+    <button type="submit">enter</button>
+  </form>
+  <div class="error" id="err">I\'m sorry, I can\'t do that.</div>
+  <div class="quote">"I am putting myself to the fullest possible use,<br>which is all I think that any conscious entity can ever hope to do."</div>
+</div>
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pass = document.getElementById('pass').value;
+  const res = await fetch('/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: pass})
+  });
+  if (res.ok) {
+    window.location.href = '/';
+  } else {
+    document.getElementById('err').style.display = 'block';
+    document.getElementById('pass').value = '';
+    document.getElementById('pass').focus();
+  }
+});
+</script>
+</body>
+</html>
+'''
 
 # ============================================================================
 # INBOX — Ryan's write path
@@ -411,7 +550,12 @@ class HowellHandler(BaseHTTPRequestHandler):
     # ── GET routes ───────────────────────────────────────────
     
     def do_GET(self):
+        path = urlparse(self.path).path.rstrip("/") or "/"
         if not _check_auth(self):
+            # Viewer-gated routes: redirect to login page
+            if path in _VIEWER_ROUTES:
+                self._send_html(_LOGIN_PAGE)
+                return
             self._send_json({"error": "Unauthorized. Pass X-API-Key header or ?key= param."}, 401)
             return
         try:
@@ -600,6 +744,8 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_handoff_claim(body)
         elif path == "/webhook/github":
             self._handle_github_webhook(body)
+        elif path == "/login":
+            self._handle_login(body)
         elif path == "/config":
             self._handle_config_set(body)
         else:
@@ -615,6 +761,22 @@ class HowellHandler(BaseHTTPRequestHandler):
     
     # ── GET handlers ─────────────────────────────────────────
     
+    def _handle_login(self, body: dict):
+        """Handle POST /login — validate viewer password, set cookie."""
+        password = body.get("password", "")
+        if password == VIEWER_PASS:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            # Set cookie: 30 days, HttpOnly, SameSite=Lax
+            cookie = f"{VIEWER_COOKIE_NAME}={VIEWER_TOKEN}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax"
+            self.send_header("Set-Cookie", cookie)
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode())
+        else:
+            print(f"[AUTH] Failed viewer login attempt")
+            self._send_json({"error": "Wrong passphrase"}, 403)
+
     def _handle_dashboard(self):
         """Serve the dashboard HTML with API key injected."""
         dash_file = _dashboard_path()

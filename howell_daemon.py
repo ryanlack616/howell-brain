@@ -213,14 +213,19 @@ def _normalize_pass(p: str) -> str:
 VIEWER_TOKEN = hashlib.sha256(f"howell-viewer:{_normalize_pass(VIEWER_PASS)}".encode()).hexdigest()[:32]
 
 # Routes that require viewer auth (browser pages + data they fetch)
-_VIEWER_ROUTES = {"/", "/dashboard", "/brain", "/explorer", "/graph",
-                  "/status", "/knowledge", "/pinned", "/recent", "/summary",
-                  "/search", "/identity/soul", "/stats", "/moltbook",
-                  "/instances", "/agents", "/handoffs", "/agents/context",
-                  "/tasks", "/tasks/board", "/tasks/available", "/tasks/templates"}
+# NOTE: As of Feb 2026, all viewer routes are public (front-facing at how-well.art)
+# The viewer gate is preserved in code but bypassed — see _NO_AUTH_ROUTES below.
+_VIEWER_ROUTES = set()  # Empty — all former viewer routes are now public
 
-# Truly public — no auth at all (health checks, login, webhooks, CORS, architecture)
-_NO_AUTH_ROUTES = {"/health", "/login", "/favicon.ico", "/webhook/github", "/architecture"}
+# Public routes — no auth at all. Dashboard is world-visible, API writes stay locked.
+_NO_AUTH_ROUTES = {"/health", "/login", "/favicon.ico", "/webhook/github", "/architecture",
+                   # Dashboard pages
+                   "/", "/dashboard", "/brain", "/explorer", "/graph",
+                   # Data endpoints (read-only)
+                   "/status", "/knowledge", "/pinned", "/recent", "/summary",
+                   "/search", "/identity/soul", "/stats", "/moltbook",
+                   "/instances", "/agents", "/handoffs", "/agents/context",
+                   "/tasks", "/tasks/board", "/tasks/available", "/tasks/templates"}
 
 def _check_viewer(handler) -> bool:
     """Check if request has valid viewer cookie."""
@@ -1294,13 +1299,10 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Wrong passphrase"}, 403)
 
     def _handle_dashboard(self):
-        """Serve the dashboard HTML with API key injected."""
+        """Serve the dashboard HTML (public, no key injection)."""
         dash_file = _dashboard_path()
         if dash_file.exists():
             html = dash_file.read_text(encoding="utf-8")
-            # Inject the API key into the page so fetch calls can use it
-            inject = f'<script>window.__HOWELL_API_KEY="{API_KEY}";</script>'
-            html = html.replace("</head>", inject + "\n</head>", 1)
             self._send_html(html)
         else:
             self._send_html("<h1>Dashboard not found</h1><p>Expected at: " + str(dash_file) + "</p>", 404)
@@ -1330,12 +1332,10 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._send_html("<h1>Explorer not found</h1>", 404)
 
     def _handle_graph_page(self):
-        """Serve the standalone graph visualization page."""
+        """Serve the standalone graph visualization page (public)."""
         graph_file = _graph_path()
         if graph_file.exists():
             html = graph_file.read_text(encoding="utf-8")
-            inject = f'<script>window.__HOWELL_API_KEY="{API_KEY}";</script>'
-            html = html.replace("</head>", inject + "\n</head>", 1)
             self._send_html(html)
         else:
             self._send_html("<h1>Graph page not found</h1><p>Expected at: " + str(graph_file) + "</p>", 404)

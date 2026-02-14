@@ -2,12 +2,12 @@
 
 ## Project Location
 
-`C:\Users\PC\Desktop\projects\cync-api-py`
+`C:\rje\dev\io-connections\cync-api-py`
 
 ## Environment
 
 ```powershell
-cd C:\Users\PC\Desktop\projects\cync-api-py
+cd C:\rje\dev\io-connections\cync-api-py
 .\.venv\Scripts\Activate.ps1
 ```
 

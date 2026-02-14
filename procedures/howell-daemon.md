@@ -3,7 +3,7 @@
 ## Start
 
 ```
-cd C:\Users\PC\Desktop\claude-persist\bridge
+cd C:\rje\tools\claude-persist\bridge
 python howell_daemon.py
 ```
 
@@ -11,7 +11,7 @@ Listens on `http://127.0.0.1:7777`. Runs background heartbeat every 6 hours.
 
 ## CLI
 
-Add `C:\Users\PC\Desktop\claude-persist\bridge` to PATH, then:
+Add `C:\rje\tools\claude-persist\bridge` to PATH, then:
 
 ```
 howell status        — Health check
@@ -51,8 +51,8 @@ howell note Entity "observation"
 
 To start automatically, create a scheduled task or shortcut in `shell:startup`:
 
-Target: `python C:\Users\PC\Desktop\claude-persist\bridge\howell_daemon.py`
-Start in: `C:\Users\PC\Desktop\claude-persist\bridge`
+Target: `python C:\rje\tools\claude-persist\bridge\howell_daemon.py`
+Start in: `C:\rje\tools\claude-persist\bridge`
 
 ## Gotchas
 

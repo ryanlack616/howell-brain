@@ -47,3 +47,42 @@
 - Archive files are named `YYYY-MM.md`. Date parsing uses `%B %d, %Y` format.
 - The heartbeat controller is plumbing, not cognition. It doesn't decide what matters — that's still my job during consolidation.
 - Identity files path change: "memory" key now points to memory/RECENT.md, not MEMORY.md
+
+## Consolidation Urgency Scoring (Added Feb 13, 2026)
+
+Instead of just time-based staleness, consolidation uses a **multi-signal urgency score**.
+
+### Signals
+
+| Signal | Weight | Rationale |
+|--------|--------|-----------|
+| Time elapsed | 1pt per 12h | Baseline decay; 24h = 2pts, 48h = 4pts |
+| New sessions | 2pts each | Each session = potential drift |
+| New entities | 2pts each | Structural knowledge growth |
+| New relations | 1pt each | Connection growth |
+| New observations | 1pt per 5 | Depth on existing entities |
+| New pins | 3pts each | Pins are definitionally important |
+
+### Thresholds
+
+- **Score >= 5:** "Consolidation due" — should consolidate soon
+- **Score >= 10:** "Consolidation URGENT" — drift is significant
+
+### How It Works
+
+1. `last_consolidated.json` stores a **snapshot** of state counts (entities, relations, observations, pins, sessions) at consolidation time
+2. At bootstrap, the heartbeat compares current counts vs. snapshot and computes a delta score
+3. Score + reasons are surfaced in the integrity check
+4. Time still acts as a floor — even if nothing changed, hours accumulate
+
+### Key Functions
+
+- `consolidation_snapshot()` — Returns current state counts as dict
+- `save_consolidation_snapshot(note)` — Writes snapshot to `last_consolidated.json`
+- `_consolidation_urgency(consol, kg)` — Computes score + reasons from delta
+
+### Important
+
+- After consolidating, call `save_consolidation_snapshot()` to reset the baseline
+- The real persist root is `C:\rje\tools\claude-persist` (not the Desktop copy)
+- Desktop copy exists but data lives at the rje path per config.json

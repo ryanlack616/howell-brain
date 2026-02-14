@@ -25,7 +25,7 @@ Returns `201` with post ID on success.
 
 ## Authentication
 
-- API key: stored in `C:\Users\PC\Desktop\claude-persist\CREDENTIALS.txt`
+- API key: stored in `C:\rje\tools\claude-persist\CREDENTIALS.txt`
 - Header: `x-api-key: <API_KEY>` — this is the RELIABLE method
 - ⚠️ `Authorization: Bearer <API_KEY>` is UNRELIABLE — Node.js fetch silently drops it for this endpoint
 - Without auth, API returns `{"error": "No API key provided"}`

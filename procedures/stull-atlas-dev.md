@@ -2,7 +2,7 @@
 
 ## Location
 
-`C:\Users\PC\Desktop\projects\stull-atlas\src`
+`C:\rje\dev\ceramics\stull-atlas\src`
 
 ## Stack
 
@@ -11,7 +11,7 @@ React + TypeScript + Vite + Zustand + Plotly
 ## Dev Server
 
 ```powershell
-cd C:\Users\PC\Desktop\projects\stull-atlas\src
+cd C:\rje\dev\ceramics\stull-atlas\src
 npm run dev
 ```
 

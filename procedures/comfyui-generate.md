@@ -3,7 +3,7 @@
 ## Launch
 
 ```powershell
-cd C:\Users\PC\Desktop\ComfyUI
+cd C:\rje\tools\ComfyUI
 .\venv\Scripts\python.exe main.py
 ```
 
@@ -15,7 +15,7 @@ UI at: http://127.0.0.1:8188
 
 - **Flux-schnell FP8** (17.2GB)
 - 4 steps, euler sampler, cfg 1.0
-- Output: `C:\Users\PC\Desktop\ComfyUI\output\`
+- Output: `C:\rje\tools\ComfyUI\output\`
 
 ## Performance (RTX 4070, 12GB VRAM)
 
@@ -24,7 +24,7 @@ UI at: http://127.0.0.1:8188
 
 ## Helper Script
 
-`C:\Users\PC\Desktop\claude-persist\comfyui_generate.py` — programmatic generation via API
+`C:\rje\tools\claude-persist\comfyui_generate.py` — programmatic generation via API
 
 ## Gotchas
 

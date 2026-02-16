@@ -308,7 +308,8 @@ def _tool_bootstrap():
     kg = load_knowledge()
     report = run_heartbeat()
     instances = list_instances()
-    tasks = tasks_for_bootstrap()
+    instance_id = instances[0]["id"] if instances else "mcp-client"
+    tasks = tasks_for_bootstrap(instance_id)
 
     entities = []
     for name, entity in kg.entities.items():
@@ -820,11 +821,16 @@ def _process_jsonrpc(request: dict) -> dict | None:
 def handle_request(handler, method: str, path: str, params_or_body):
     """
     Main entry point called from the daemon's HTTP handler.
-    Routes GET /mcp (SSE) and POST /mcp/message (JSON-RPC).
+    Supports both Streamable HTTP (POST /mcp) and legacy SSE transport.
     """
-    if method == "GET" and (path == "/mcp" or path == "/mcp/"):
+    if method == "POST" and (path == "/mcp" or path == "/mcp/"):
+        # ── Streamable HTTP transport (VS Code type: "http") ──
+        _handle_streamable_http(handler, params_or_body)
+    elif method == "GET" and (path == "/mcp" or path == "/mcp/"):
+        # ── Legacy SSE transport (GET /mcp → SSE stream) ──
         _handle_sse(handler)
     elif method == "POST" and path.startswith("/mcp/message"):
+        # ── Legacy SSE message endpoint ──
         parsed = urlparse(handler.path)
         qs = parse_qs(parsed.query)
         session_id = qs.get("sessionId", [""])[0]
@@ -832,9 +838,18 @@ def handle_request(handler, method: str, path: str, params_or_body):
     elif method == "OPTIONS":
         handler.send_response(200)
         handler.send_header("Access-Control-Allow-Origin", "*")
-        handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        handler.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization")
+        handler.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        handler.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization, Mcp-Session-Id")
         handler.end_headers()
+    elif method == "DELETE" and (path == "/mcp" or path == "/mcp/"):
+        # ── Streamable HTTP session close ──
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        body = b'{"ok":true}'
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
     else:
         body = json.dumps({"error": f"Unknown MCP route: {path}"}).encode()
         handler.send_response(404)
@@ -842,6 +857,53 @@ def handle_request(handler, method: str, path: str, params_or_body):
         handler.send_header("Content-Length", str(len(body)))
         handler.end_headers()
         handler.wfile.write(body)
+
+
+def _handle_streamable_http(handler, body: dict):
+    """
+    Handle POST /mcp — Streamable HTTP transport.
+    Processes JSON-RPC request and returns response directly in HTTP response body.
+    Supports both single requests and batch arrays.
+    """
+    # Generate or reuse session ID
+    session_id = handler.headers.get("Mcp-Session-Id") or str(uuid.uuid4())
+
+    # Handle JSON-RPC batch (array) or single request
+    if isinstance(body, list):
+        responses = []
+        for req in body:
+            resp = _process_jsonrpc(req)
+            if resp is not None:
+                responses.append(resp)
+        if not responses:
+            # All notifications — return 202 Accepted
+            handler.send_response(202)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Mcp-Session-Id", session_id)
+            handler.send_header("Access-Control-Allow-Origin", "*")
+            handler.end_headers()
+            return
+        result_body = json.dumps(responses, ensure_ascii=False).encode()
+    else:
+        response = _process_jsonrpc(body)
+        if response is None:
+            # Notification — return 202 Accepted
+            handler.send_response(202)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Mcp-Session-Id", session_id)
+            handler.send_header("Access-Control-Allow-Origin", "*")
+            handler.end_headers()
+            return
+        result_body = json.dumps(response, ensure_ascii=False).encode()
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Mcp-Session-Id", session_id)
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Content-Length", str(len(result_body)))
+    handler.end_headers()
+    handler.wfile.write(result_body)
+    print(f"[MCP] Streamable HTTP: {body.get('method', '?') if isinstance(body, dict) else 'batch'} → {len(result_body)}B")
 
 
 def _handle_sse(handler):

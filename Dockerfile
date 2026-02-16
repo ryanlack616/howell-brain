@@ -30,9 +30,9 @@ COPY howell_daemon.py howell_bridge.py \
 # Static HTML served by daemon
 COPY brain.html kg-explorer.html ./
 
-# Entrypoint script
+# Entrypoint script (fix Windows line endings)
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Create data directory (will be overlaid by Fly.io volume)
 RUN mkdir -p /data/bridge /data/memory /data/logs /data/tasks \

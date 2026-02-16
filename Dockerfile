@@ -24,7 +24,7 @@ WORKDIR /app
 COPY howell_daemon.py howell_bridge.py \
      file_watcher.py generation_queue.py moltbook_scheduler.py \
      instance_registry.py task_queue.py agent_db.py \
-     kg_taichi.py \
+     kg_taichi.py mcp_transport.py \
      ./
 
 # Static HTML served by daemon

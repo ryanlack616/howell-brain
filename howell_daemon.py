@@ -257,7 +257,7 @@ def _check_auth(handler) -> bool:
             return True
         return False
     # Instance/task/agent coordination endpoints (MCP server, no API key)
-    if path.startswith(("/instance", "/tasks", "/agents", "/handoffs")):
+    if path.startswith(("/instance", "/tasks", "/agents", "/handoffs", "/mcp")):
         return True
     # Everything else: require API key
     auth = handler.headers.get("X-API-Key", "") or handler.headers.get("Authorization", "").replace("Bearer ", "")
@@ -1161,6 +1161,9 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_config_get()
         elif path.startswith("/identity/"):
             self._handle_identity(path.split("/identity/", 1)[1])
+        elif path.startswith("/mcp"):
+            import mcp_transport
+            mcp_transport.handle_request(self, "GET", path, params)
         else:
             self._send_json({"error": f"Unknown route: {path}"}, 404)
 
@@ -1265,6 +1268,9 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_login(body)
         elif path == "/config":
             self._handle_config_set(body)
+        elif path.startswith("/mcp"):
+            import mcp_transport
+            mcp_transport.handle_request(self, "POST", path, body)
         else:
             self._send_json({"error": f"Unknown route: {path}"}, 404)
     

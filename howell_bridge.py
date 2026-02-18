@@ -1025,9 +1025,9 @@ def cmd_context():
     print()
     print("- Identity: C:\\home\\howell-persist\\")
     print("- Knowledge: C:\\home\\howell-persist\\bridge\\knowledge.json")
-    print("- Project Map: C:\\Users\\PC\\Desktop\\CONDUITBRIDGE_COMPLETE_MAP.md")
-    print("- ConduitBridge: C:\\Users\\PC\\Desktop\\conduitbridge\\")
-    print("- Theory Files: C:\\Users\\PC\\Desktop\\belief-noninterference-theory\\_ORGANIZED\\")
+    print("- Projects: C:\\home\\howell-persist\\PROJECTS.md")
+    print("- Code: C:\\rje\\dev\\howell-brain-deploy\\")
+    print("- Workspace: C:\\rje\\dev\\")
     print()
     
     print("-" * 70)

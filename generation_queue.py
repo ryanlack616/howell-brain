@@ -27,7 +27,7 @@ from pathlib import Path
 PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist"))
 QUEUE_DIR = PERSIST_ROOT / "queue" / "comfyui"
 COMFYUI_URL = "http://127.0.0.1:8188"
-COMFYUI_OUTPUT_DIR = Path(os.environ.get("COMFYUI_OUTPUT_DIR", r"C:\Users\PC\Desktop\comfyui-files"))
+COMFYUI_OUTPUT_DIR = Path(os.environ.get("COMFYUI_OUTPUT_DIR", str(PERSIST_ROOT / "queue" / "comfyui-output")))
 
 # Live stats
 _queue_poll_count = 0

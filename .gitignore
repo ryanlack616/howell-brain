@@ -20,3 +20,6 @@ Thumbs.db
 
 # Backups
 backups/
+
+# Machine-specific
+start-daemon.vbs

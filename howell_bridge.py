@@ -55,7 +55,7 @@ _io_lock = threading.Lock()
 # ============================================================================
 
 _CONFIG_FILE = Path(__file__).parent / "config.json"
-_DEFAULT_PERSIST = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\Users\PC\Desktop\claude-persist"))
+_DEFAULT_PERSIST = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist"))
 
 def _load_config() -> dict:
     """Load config.json from bridge directory. Returns dict."""
@@ -123,7 +123,7 @@ def _derive_paths():
     IDENTITY_FILES = {
         "soul": PERSIST_ROOT / "SOUL.md",
         "memory": RECENT_FILE,
-        "questions": PERSIST_ROOT / "uncertain" / "QUESTIONS.md",
+        "questions": PERSIST_ROOT / "QUESTIONS.md",
         "context": PERSIST_ROOT / "CONTEXT.md",
         "projects": PERSIST_ROOT / "PROJECTS.md",
         "pinned": PINNED_FILE,
@@ -1023,8 +1023,8 @@ def cmd_context():
     # Key files
     print("## KEY FILES")
     print()
-    print("- Identity: C:\\Users\\PC\\Desktop\\claude-persist\\")
-    print("- Knowledge: C:\\Users\\PC\\Desktop\\claude-persist\\bridge\\knowledge.json")
+    print("- Identity: C:\\home\\howell-persist\\")
+    print("- Knowledge: C:\\home\\howell-persist\\bridge\\knowledge.json")
     print("- Project Map: C:\\Users\\PC\\Desktop\\CONDUITBRIDGE_COMPLETE_MAP.md")
     print("- ConduitBridge: C:\\Users\\PC\\Desktop\\conduitbridge\\")
     print("- Theory Files: C:\\Users\\PC\\Desktop\\belief-noninterference-theory\\_ORGANIZED\\")

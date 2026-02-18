@@ -53,7 +53,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 # Add bridge to path — resolve from env var or default
-PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\Users\PC\Desktop\claude-persist"))
+PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist"))
 BRIDGE_ROOT = PERSIST_ROOT / "bridge"
 sys.path.insert(0, str(BRIDGE_ROOT))
 # Also add script's own directory (for Fly.io where code lives in /app/)
@@ -1172,7 +1172,8 @@ class HowellHandler(BaseHTTPRequestHandler):
         identity_files = {
             "soul": PERSIST_ROOT / "SOUL.md",
             "context": PERSIST_ROOT / "CONTEXT.md",
-            "projects": Path(os.environ.get("HOWELL_PROJECTS_FILE", r"C:\Users\PC\Desktop\projects\stull-atlas\src\docs\roadmap.md")),
+            "projects": PERSIST_ROOT / "PROJECTS.md",
+            "questions": PERSIST_ROOT / "QUESTIONS.md",
         }
         path = identity_files.get(name)
         if path and path.exists():

@@ -17,14 +17,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\Users\PC\Desktop\claude-persist"))
+PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist"))
 MEMORY_ROOT = PERSIST_ROOT / "memory"
 CHANGES_FILE = MEMORY_ROOT / "changes.log"
 
 # ── Approved watch targets ──────────────────────────────────
 # Ryan's boundary: ask before watching anything else
+# Set HOWELL_WATCH_DIRS env var to add extra dirs (path-separated)
 
-_extra_watch = os.environ.get("HOWELL_WATCH_DIRS", r"C:\Users\PC\Desktop\projects")
+_extra_watch = os.environ.get("HOWELL_WATCH_DIRS", "")
 WATCHED_DIRS = [
     PERSIST_ROOT,
 ] + [Path(d) for d in _extra_watch.split(os.pathsep) if d]

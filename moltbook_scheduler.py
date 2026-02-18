@@ -23,7 +23,7 @@ import urllib.error
 from datetime import datetime
 from pathlib import Path
 
-PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\Users\PC\Desktop\claude-persist"))
+PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist"))
 MOLTBOOK_DIR = PERSIST_ROOT / "queue" / "moltbook"
 MOLTBOOK_API = "https://www.moltbook.com/api/v1/posts"
 

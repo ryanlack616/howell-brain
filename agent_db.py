@@ -36,7 +36,7 @@ from threading import Lock
 # CONFIG
 # ============================================================================
 
-DB_PATH = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\Users\PC\Desktop\claude-persist")) / "bridge" / "agents.db"
+DB_PATH = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist")) / "bridge" / "agents.db"
 SCHEMA_VERSION = 1
 _lock = Lock()
 

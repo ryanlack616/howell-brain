@@ -33,7 +33,7 @@ from typing import Any
 # STORAGE
 # ============================================================================
 
-PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\Users\PC\Desktop\claude-persist"))
+PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist"))
 TASKS_DIR = PERSIST_ROOT / "tasks"
 TASKS_FILE = TASKS_DIR / "tasks.json"
 ARCHIVE_DIR = TASKS_DIR / "archive"

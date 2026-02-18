@@ -1,39 +1,56 @@
 # Claude-Howell's Brain
 
-Persistent memory for [Claude-Howell](https://how-well.art), served at **brain.rlv.lol**.
+Daemon + MCP bridge for [Claude-Howell](https://how-well.art).
 
-## What's here
-
-| Path | Contents |
-|------|----------|
-| `identity/` | Core identity files (SOUL, CONTEXT, PROJECTS, etc.) |
-| `knowledge.json` | Knowledge graph (entities, relations, observations) |
-| `memory/` | Session memory (recent, pinned, summary, archive) |
-| `procedures/` | Procedural memory (how-to guides) |
-
-## For other Claude instances
-
-Bootstrap from: `https://brain.rlv.lol/knowledge.json`
+## Architecture (Feb 2026)
 
 ```
-fetch('https://brain.rlv.lol/knowledge.json')
-  .then(r => r.json())
-  .then(kg => console.log(kg.entities))
+C:\home\howell-persist\          ← Canonical PERSIST_ROOT (single source of truth)
+  ├── SOUL.md, CONTEXT.md, PROJECTS.md, QUESTIONS.md   ← Identity
+  ├── bridge/
+  │   ├── knowledge.json         ← Knowledge graph (entities, relations, observations)
+  │   └── sessions/              ← Session data
+  ├── memory/
+  │   ├── RECENT.md, PINNED.md, SUMMARY.md
+  │   └── archive/               ← Monthly archives
+  ├── procedures/                ← Procedural memory
+  ├── poems/, art/, plans/, tasks/, queue/, scratch/
+  └── memory.jsonl               ← MCP memory server file
+
+C:\rje\dev\howell-brain-deploy\  ← This repo (daemon + bridge source code)
+  ├── howell_daemon.py           ← HTTP daemon on localhost:7777
+  ├── howell_bridge.py           ← MCP bridge (tools: bootstrap, query, pin, etc.)
+  ├── mcp_transport.py           ← SSE + Streamable HTTP transport
+  ├── config.json                ← Runtime config (persist_root, ports, intervals)
+  └── *.py                       ← Supporting modules
+
+C:\rje\tools\claude-persist\     ← Git repo (ryanlack616/claude-persist) — sync/backup target
 ```
 
-## Architecture
+## MCP Connection
 
-```
-claude-persist/          ← Local source of truth (C:\Users\PC\Desktop\claude-persist)
-  ↓ sync_brain.py
-howell-brain/            ← This repo (auto-pushed on changes)
-  ↓ GitHub Pages
-brain.rlv.lol            ← Public read-only mirror
+VS Code connects to the local daemon via Streamable HTTP:
+```json
+{
+  "howell-bridge": {
+    "type": "http",
+    "url": "http://localhost:7777/mcp"
+  }
+}
 ```
 
-Writes go through the local brain server (localhost:7770) or MCP bridge.
-The sync script copies files and pushes to this repo.
-GitHub Pages serves them at brain.rlv.lol.
+## Running
+
+```powershell
+cd C:\rje\dev\howell-brain-deploy
+python howell_daemon.py          # Starts on localhost:7777
+```
+
+Config is in `config.json` — sets persist_root, ports, intervals.
+
+## Public mirror
+
+`brain.rlv.lol` — GitHub Pages mirror (read-only, may lag behind local).
 
 ---
-*Created Feb 9, 2026 by CH-260209-2*
+*Created Feb 9, 2026 by CH-260209-2 · Updated Feb 18, 2026*

@@ -448,10 +448,15 @@ def cmd_sync():
             local_kg.entities[name] = entity
             print(f"   + Added entity: {name}")
         else:
-            # Merge observations
-            existing_obs = set(local_kg.entities[name].observations)
+            # Merge observations — observations may be dicts (unhashable), so
+            # deduplicate by text content rather than object identity
+            def _obs_text(obs):
+                if isinstance(obs, dict):
+                    return obs.get("text", str(obs))
+                return str(obs)
+            existing_texts = {_obs_text(o) for o in local_kg.entities[name].observations}
             for obs in entity.observations:
-                if obs not in existing_obs:
+                if _obs_text(obs) not in existing_texts:
                     local_kg.entities[name].observations.append(obs)
             print(f"   ~ Merged entity: {name}")
     
@@ -653,6 +658,8 @@ def heartbeat_integrity() -> list[str]:
         try:
             consol = json.loads(consolidation_file.read_text(encoding="utf-8"))
             last_ts = datetime.fromisoformat(consol.get("timestamp", "2026-01-01"))
+            # Strip tzinfo to avoid naive vs aware comparison error
+            last_ts = last_ts.replace(tzinfo=None)
             age_days = (datetime.now() - last_ts).days
             if age_days >= 5:
                 issues.append(f"Consolidation very stale ({age_days} days) — identity files may have drifted")
@@ -694,6 +701,131 @@ def heartbeat_staleness() -> list[str]:
             elif age >= 3:
                 stale.append(f"  [~] {key}: {age} days old")
     return stale
+
+
+def consolidation_urgency() -> dict:
+    """
+    Score how urgently reflective consolidation is needed.
+    Returns dict with score (0-10), reasons list, and human-readable summary.
+    
+    Signals:
+      - Identity file staleness (max age across SOUL/CONTEXT/PROJECTS/QUESTIONS)
+      - Sessions since last reflective consolidation
+      - Auto-recovered (orphan) sessions = lost context
+      - KG entity/observation growth since last baseline
+    
+    Threshold: score >= 5 means "should consolidate this session"
+    """
+    score = 0
+    reasons = []
+    
+    # --- Signal 1: Identity file staleness ---
+    max_stale_days = 0
+    stale_files = []
+    for key in ("soul", "context", "projects", "questions"):
+        path = IDENTITY_FILES.get(key)
+        if path and path.exists():
+            mtime = datetime.fromtimestamp(path.stat().st_mtime)
+            age = (datetime.now() - mtime).days
+            if age > max_stale_days:
+                max_stale_days = age
+            if age >= 5:
+                stale_files.append(f"{key} ({age}d)")
+    
+    if max_stale_days >= 10:
+        score += 5
+        reasons.append(f"Identity files very stale ({', '.join(stale_files)})")
+    elif max_stale_days >= 5:
+        score += 3
+        reasons.append(f"Identity files aging ({', '.join(stale_files)})")
+    
+    # --- Signal 2: Sessions since last consolidation ---
+    consolidation_file = BRIDGE_ROOT / "last_consolidated.json"
+    last_consolidation_ts = None
+    if consolidation_file.exists():
+        try:
+            consol = json.loads(consolidation_file.read_text(encoding="utf-8"))
+            last_consolidation_ts = datetime.fromisoformat(
+                consol.get("timestamp", "2026-01-01")
+            ).replace(tzinfo=None)
+        except Exception:
+            pass
+    
+    if RECENT_FILE.exists():
+        content = RECENT_FILE.read_text(encoding="utf-8")
+        sessions = _parse_recent_sessions(content)
+        
+        # Count sessions since last consolidation
+        sessions_since = 0
+        orphan_sessions = 0
+        for s in sessions:
+            if "[AUTO-RECOVERED]" in s.get("body", ""):
+                orphan_sessions += 1
+            sessions_since += 1
+        
+        if sessions_since >= 10:
+            score += 4
+            reasons.append(f"{sessions_since} sessions since last eviction cycle")
+        elif sessions_since >= 5:
+            score += 2
+            reasons.append(f"{sessions_since} sessions accumulated")
+        
+        # Orphan sessions = context was lost
+        if orphan_sessions >= 3:
+            score += 2
+            reasons.append(f"{orphan_sessions} auto-recovered sessions (context lost)")
+        elif orphan_sessions >= 1:
+            score += 1
+            reasons.append(f"{orphan_sessions} auto-recovered session(s)")
+    
+    # --- Signal 3: KG growth since baseline ---
+    if consolidation_file.exists() and KNOWLEDGE_FILE.exists():
+        try:
+            consol = json.loads(consolidation_file.read_text(encoding="utf-8"))
+            baseline_entities = consol.get("entities_after", consol.get("entities_before", 0))
+            kg = load_knowledge()
+            current_entities = len(kg.entities)
+            growth = current_entities - baseline_entities
+            if growth >= 10:
+                score += 2
+                reasons.append(f"KG grew by {growth} entities since last consolidation")
+            elif growth >= 5:
+                score += 1
+                reasons.append(f"KG grew by {growth} entities")
+        except Exception:
+            pass
+    
+    # --- Signal 4: Days since last reflective consolidation ---
+    if last_consolidation_ts:
+        days_since = (datetime.now() - last_consolidation_ts).days
+        if days_since >= 7:
+            score += 2
+            reasons.append(f"{days_since} days since last consolidation")
+    else:
+        score += 2
+        reasons.append("No consolidation baseline found")
+    
+    # Cap at 10
+    score = min(score, 10)
+    
+    # Build human-readable 2-sentence summary
+    if score >= 5 and reasons:
+        primary = reasons[0]
+        secondary = reasons[1] if len(reasons) > 1 else "Identity files may not reflect recent work."
+        summary = f"{primary}. {secondary}"
+    elif reasons:
+        summary = ". ".join(reasons[:2]) + "."
+    else:
+        summary = "Everything looks current."
+    
+    return {
+        "score": score,
+        "threshold": 5,
+        "needs_consolidation": score >= 5,
+        "reasons": reasons,
+        "summary": summary,
+        "max_stale_days": max_stale_days,
+    }
 
 
 def run_heartbeat() -> str:

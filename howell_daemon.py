@@ -50,7 +50,19 @@ import time
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, parse_qs as parse_form, urlencode, quote
+import urllib.request
+import urllib.error
+import base64
+
+# Load .env.local if present (stdlib-only, no dotenv dependency)
+_env_local = Path(__file__).parent / ".env.local"
+if _env_local.exists():
+    for _line in _env_local.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _, _v = _line.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 # Add bridge to path — resolve from env var or default
 PERSIST_ROOT = Path(os.environ.get("HOWELL_PERSIST_ROOT", r"C:\home\howell-persist"))
@@ -61,6 +73,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from howell_bridge import (
     run_heartbeat,
+    consolidation_urgency,
     end_session,
     pin_memory,
     load_knowledge,
@@ -137,6 +150,7 @@ from task_queue import (
     list_templates,
 )
 import agent_db
+import break_glass_chat
 
 # ============================================================================
 # API KEY AUTH
@@ -221,11 +235,15 @@ _VIEWER_ROUTES = set()  # Empty — all former viewer routes are now public
 _NO_AUTH_ROUTES = {"/health", "/login", "/favicon.ico", "/webhook/github", "/architecture",
                    # Dashboard pages
                    "/", "/dashboard", "/brain", "/explorer", "/graph",
+                   # Break Glass chat (emergency fallback)
+                   "/chat", "/chat/send", "/chat/status",
                    # Data endpoints (read-only)
                    "/status", "/knowledge", "/pinned", "/recent", "/summary",
                    "/search", "/identity/soul", "/stats", "/moltbook",
                    "/instances", "/agents", "/handoffs", "/agents/context",
-                   "/tasks", "/tasks/board", "/tasks/available", "/tasks/templates"}
+                   "/tasks", "/tasks/board", "/tasks/available", "/tasks/templates",
+                   # Twilio webhooks (must be public — Twilio POSTs here)
+                   "/twilio/sms", "/twilio/voice", "/twilio/status"}
 
 def _check_viewer(handler) -> bool:
     """Check if request has valid viewer cookie."""
@@ -419,6 +437,270 @@ def inbox_count() -> int:
     """Count unread inbox items."""
     ensure_inbox()
     return len(list(INBOX_DIR.glob("*.md")))
+
+# ============================================================================
+# TWILIO — SMS & Voice
+# ============================================================================
+
+# Twilio credentials (from env vars or .env)
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE = os.environ.get("TWILIO_PHONE", "")
+TWILIO_API_BASE = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}"
+
+# SMS log directory
+SMS_LOG_DIR = PERSIST_ROOT / "sms"
+
+def ensure_sms_dir():
+    """Create SMS log directory if needed."""
+    SMS_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    (SMS_LOG_DIR / "inbound").mkdir(exist_ok=True)
+    (SMS_LOG_DIR / "outbound").mkdir(exist_ok=True)
+
+def log_sms(direction: str, from_num: str, to_num: str, body: str, extra: dict = None) -> str:
+    """Log an SMS message. Returns filename."""
+    ensure_sms_dir()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{ts}_{from_num.replace('+','')}.json"
+    subdir = SMS_LOG_DIR / direction
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "direction": direction,
+        "from": from_num,
+        "to": to_num,
+        "body": body,
+    }
+    if extra:
+        entry.update(extra)
+    (subdir / filename).write_text(json.dumps(entry, indent=2), encoding="utf-8")
+    print(f"[SMS] {direction}: {from_num} -> {to_num}: {body[:80]}")
+    return filename
+
+def get_sms_log(direction: str = None, limit: int = 20) -> list:
+    """Get recent SMS messages."""
+    ensure_sms_dir()
+    dirs = []
+    if direction in (None, "all"):
+        dirs = [SMS_LOG_DIR / "inbound", SMS_LOG_DIR / "outbound"]
+    else:
+        dirs = [SMS_LOG_DIR / direction]
+    messages = []
+    for d in dirs:
+        if d.exists():
+            for f in sorted(d.glob("*.json"), reverse=True)[:limit]:
+                try:
+                    messages.append(json.loads(f.read_text(encoding="utf-8")))
+                except Exception:
+                    pass
+    messages.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
+    return messages[:limit]
+
+def send_sms(to: str, body: str) -> dict:
+    """Send an SMS via Twilio REST API. No SDK needed — stdlib only."""
+    url = f"{TWILIO_API_BASE}/Messages.json"
+    data = urlencode({
+        "From": TWILIO_PHONE,
+        "To": to,
+        "Body": body,
+    }).encode("utf-8")
+    # Basic auth header
+    credentials = base64.b64encode(f"{TWILIO_ACCOUNT_SID}:{TWILIO_AUTH_TOKEN}".encode()).decode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Authorization", f"Basic {credentials}")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read().decode())
+            log_sms("outbound", TWILIO_PHONE, to, body, {"sid": result.get("sid")})
+            return {"ok": True, "sid": result.get("sid"), "status": result.get("status")}
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode() if e.fp else str(e)
+        print(f"[SMS ERROR] {e.code}: {err_body}")
+        return {"ok": False, "error": f"Twilio API error {e.code}", "detail": err_body}
+    except Exception as e:
+        print(f"[SMS ERROR] {e}")
+        return {"ok": False, "error": str(e)}
+
+def sms_stats() -> dict:
+    """SMS statistics for status endpoint."""
+    ensure_sms_dir()
+    inbound = len(list((SMS_LOG_DIR / "inbound").glob("*.json")))
+    outbound = len(list((SMS_LOG_DIR / "outbound").glob("*.json")))
+    return {"inbound": inbound, "outbound": outbound, "total": inbound + outbound}
+
+# ============================================================================
+# EMAIL — Gmail SMTP outbox with review queue
+# ============================================================================
+
+# Email config (credentials from env vars or config.json)
+GMAIL_USER = os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+
+# Email queue directories on persistent volume
+EMAIL_DIR = PERSIST_ROOT / "email"
+EMAIL_PENDING = EMAIL_DIR / "pending"
+EMAIL_SENT = EMAIL_DIR / "sent"
+EMAIL_REJECTED = EMAIL_DIR / "rejected"
+
+def ensure_email_dirs():
+    """Create email queue directories if needed."""
+    for d in (EMAIL_PENDING, EMAIL_SENT, EMAIL_REJECTED):
+        d.mkdir(parents=True, exist_ok=True)
+
+def _load_email_config():
+    """Load Gmail credentials, checking env vars then config.json."""
+    user = GMAIL_USER or os.environ.get("GMAIL_USER", "")
+    pw = GMAIL_APP_PASSWORD or os.environ.get("GMAIL_APP_PASSWORD", "")
+    if not user or not pw:
+        # Try config.json
+        config_path = PERSIST_ROOT / "config.json"
+        if config_path.exists():
+            try:
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+                user = user or cfg.get("gmail_user", "")
+                pw = pw or cfg.get("gmail_app_password", "")
+            except Exception:
+                pass
+    return user, pw
+
+def queue_email(
+    to: list[str],
+    subject: str,
+    body: str,
+    html: bool = False,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    source: str = "daemon",
+    notes: str = "",
+) -> dict:
+    """Queue an email for review. Returns envelope dict."""
+    import uuid
+    ensure_email_dirs()
+    queue_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    envelope = {
+        "id": queue_id,
+        "queued_at": datetime.now().isoformat(),
+        "status": "pending",
+        "source": source,
+        "notes": notes,
+        "email": {
+            "to": to if isinstance(to, list) else [to],
+            "cc": cc,
+            "bcc": bcc,
+            "subject": subject,
+            "body": body,
+            "html": html,
+        },
+    }
+    path = EMAIL_PENDING / f"{queue_id}.json"
+    path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"[EMAIL] Queued [{queue_id}] to {', '.join(envelope['email']['to'])} — \"{subject}\"")
+    return envelope
+
+def list_email_queue(status: str = "pending") -> list[dict]:
+    """List emails by status."""
+    ensure_email_dirs()
+    folder_map = {"pending": EMAIL_PENDING, "sent": EMAIL_SENT, "rejected": EMAIL_REJECTED}
+    folder = folder_map.get(status, EMAIL_PENDING)
+    items = []
+    for f in sorted(folder.glob("*.json"), reverse=True):
+        try:
+            items.append(json.loads(f.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return items
+
+def _smtp_send(to: list[str], subject: str, body: str, html: bool = False,
+               cc: list[str] | None = None, bcc: list[str] | None = None) -> dict:
+    """Actually send via Gmail SMTP. Stdlib only."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    user, pw = _load_email_config()
+    if not user or not pw:
+        return {"ok": False, "error": "Gmail credentials not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD env vars, or add gmail_user/gmail_app_password to config.json"}
+
+    msg = MIMEMultipart()
+    msg["From"] = user
+    msg["To"] = ", ".join(to)
+    msg["Subject"] = subject
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    content_type = "html" if html else "plain"
+    msg.attach(MIMEText(body, content_type))
+
+    all_recipients = list(to)
+    if cc:
+        all_recipients.extend(cc)
+    if bcc:
+        all_recipients.extend(bcc)
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+            server.login(user, pw)
+            server.sendmail(user, all_recipients, msg.as_string())
+        print(f"[EMAIL] Sent to {', '.join(all_recipients)}")
+        return {"ok": True, "recipients": all_recipients}
+    except Exception as e:
+        print(f"[EMAIL ERROR] {e}")
+        return {"ok": False, "error": str(e)}
+
+def approve_email(queue_id: str) -> dict:
+    """Approve and send a pending email."""
+    ensure_email_dirs()
+    src = EMAIL_PENDING / f"{queue_id}.json"
+    if not src.exists():
+        return {"ok": False, "error": f"Not found in pending: {queue_id}"}
+
+    envelope = json.loads(src.read_text(encoding="utf-8"))
+    email = envelope["email"]
+
+    result = _smtp_send(
+        to=email["to"],
+        subject=email["subject"],
+        body=email["body"],
+        html=email.get("html", False),
+        cc=email.get("cc"),
+        bcc=email.get("bcc"),
+    )
+
+    if result["ok"]:
+        envelope["status"] = "sent"
+        envelope["sent_at"] = datetime.now().isoformat()
+        dst = EMAIL_SENT / f"{queue_id}.json"
+        dst.write_text(json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8")
+        src.unlink()
+        return {"ok": True, "id": queue_id, "status": "sent"}
+    else:
+        envelope["last_error"] = result["error"]
+        src.write_text(json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8")
+        return {"ok": False, "id": queue_id, "error": result["error"]}
+
+def reject_email(queue_id: str, reason: str = "") -> dict:
+    """Reject a pending email."""
+    ensure_email_dirs()
+    src = EMAIL_PENDING / f"{queue_id}.json"
+    if not src.exists():
+        return {"ok": False, "error": f"Not found in pending: {queue_id}"}
+
+    envelope = json.loads(src.read_text(encoding="utf-8"))
+    envelope["status"] = "rejected"
+    envelope["rejected_at"] = datetime.now().isoformat()
+    envelope["reject_reason"] = reason
+    dst = EMAIL_REJECTED / f"{queue_id}.json"
+    dst.write_text(json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8")
+    src.unlink()
+    return {"ok": True, "id": queue_id, "status": "rejected"}
+
+def email_stats() -> dict:
+    """Email queue statistics."""
+    ensure_email_dirs()
+    pending = len(list(EMAIL_PENDING.glob("*.json")))
+    sent = len(list(EMAIL_SENT.glob("*.json")))
+    rejected = len(list(EMAIL_REJECTED.glob("*.json")))
+    configured = bool(_load_email_config()[0] and _load_email_config()[1])
+    return {"pending": pending, "sent": sent, "rejected": rejected, "total": pending + sent + rejected, "configured": configured}
 
 # ============================================================================
 # SEARCH — unified search across everything
@@ -1052,6 +1334,11 @@ class HowellHandler(BaseHTTPRequestHandler):
             return {}
         body = self.rfile.read(length)
         self._raw_body = body
+        content_type = self.headers.get("Content-Type", "")
+        # Handle form-urlencoded (Twilio webhooks)
+        if "x-www-form-urlencoded" in content_type:
+            parsed = parse_form(body.decode("utf-8", errors="replace"))
+            return {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
         try:
             return json.loads(body)
         except json.JSONDecodeError:
@@ -1098,6 +1385,11 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_graph_page()
         elif path == "/health":
             self._send_json({"status": "ok", "uptime": int(time.time() - _start_time)})
+        elif path == "/chat":
+            self._send_html(break_glass_chat.CHAT_PAGE_HTML)
+        elif path == "/chat/status":
+            has_key = bool(break_glass_chat._load_api_key())
+            self._send_json({"api_key_loaded": has_key, "key_file": str(break_glass_chat.API_KEY_FILE)})
         elif path == "/architecture":
             self._handle_architecture_page()
         elif path == "/status":
@@ -1137,6 +1429,8 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_tasks_available(instance_filter)
         elif path == "/tasks/templates":
             self._send_json(list_templates())
+        elif path == "/api/locks":
+            self._handle_locks_get()
         elif path == "/agents":
             workspace_filter = params.get("workspace", [None])[0]
             try:
@@ -1159,6 +1453,16 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_handoffs_get(scope)
         elif path == "/config":
             self._handle_config_get()
+        elif path == "/twilio/log":
+            self._handle_twilio_log()
+        elif path == "/email/pending":
+            self._send_json({"pending": list_email_queue("pending"), "stats": email_stats()})
+        elif path == "/email/sent":
+            self._send_json({"sent": list_email_queue("sent")})
+        elif path == "/email/rejected":
+            self._send_json({"rejected": list_email_queue("rejected")})
+        elif path == "/email/stats":
+            self._send_json(email_stats())
         elif path.startswith("/identity/"):
             self._handle_identity(path.split("/identity/", 1)[1])
         elif path.startswith("/mcp"):
@@ -1263,8 +1567,26 @@ class HowellHandler(BaseHTTPRequestHandler):
             self._handle_handoff_create(body)
         elif path == "/handoffs/claim":
             self._handle_handoff_claim(body)
+        elif path == "/chat/send":
+            self._handle_chat_send(body)
         elif path == "/webhook/github":
             self._handle_github_webhook(body)
+        elif path == "/twilio/sms":
+            self._handle_twilio_sms(body)
+        elif path == "/twilio/voice":
+            self._handle_twilio_voice(body)
+        elif path == "/twilio/status":
+            self._handle_twilio_status(body)
+        elif path == "/twilio/send":
+            self._handle_twilio_send(body)
+        elif path == "/email/queue":
+            self._handle_email_queue(body)
+        elif path == "/email/send":
+            self._handle_email_send(body)
+        elif path == "/email/approve":
+            self._handle_email_approve(body)
+        elif path == "/email/reject":
+            self._handle_email_reject(body)
         elif path == "/login":
             self._handle_login(body)
         elif path == "/config":
@@ -1288,6 +1610,16 @@ class HowellHandler(BaseHTTPRequestHandler):
     def _handle_architecture_page(self):
         """Serve the public architecture page — no auth required."""
         self._send_html(_ARCHITECTURE_PAGE)
+
+    def _handle_chat_send(self, body: dict):
+        """Handle POST /chat/send — proxy to Anthropic API with context."""
+        messages = body.get("messages", [])
+        model = body.get("model", "claude-sonnet-4-20250514")
+        if not messages:
+            self._send_json({"error": "No messages provided"}, 400)
+            return
+        result = break_glass_chat.chat_completion(messages, model=model)
+        self._send_json(result)
 
     def _handle_login(self, body: dict):
         """Handle POST /login — validate viewer password, set cookie."""
@@ -1377,6 +1709,8 @@ class HowellHandler(BaseHTTPRequestHandler):
             "queue": queue_summary(),
             "tasks": task_summary(),
             "instances": instances_summary(),
+            "sms": sms_stats(),
+            "email": email_stats(),
             "threads": thread_summary,
             "threads_healthy": threads_ok,
             "uptime_seconds": round(time.time() - _start_time),
@@ -1477,6 +1811,10 @@ class HowellHandler(BaseHTTPRequestHandler):
             return
         
         result = end_session(summary, what_learned, pin_title, pin_text, pin_reason)
+
+        # CORTEX HOOK: Fire-and-forget digest (non-blocking)
+        _cortex_digest_async(body)
+
         self._send_json({"ok": True, "result": result})
     
     def _handle_pin(self, body: dict):
@@ -2043,9 +2381,99 @@ class HowellHandler(BaseHTTPRequestHandler):
     def _handle_agent_context(self, workspace: str):
         """Get bootstrap context for a workspace — recent agents, their notes, and unclaimed handoffs (read-only)."""
         context = agent_db.preview_context(workspace)
+
+        # CORTEX HOOK: Attach briefing if cortex is available (10s timeout cap)
+        briefing = _cortex_get_briefing(workspace, context)
+        if briefing:
+            context["cortex_briefing"] = briefing
+
         self._send_json(context)
 
     # ── Config handlers ────────────────────────────────────────
+
+    def _handle_locks_get(self):
+        """Return current domain lock state by reading lock files directly.
+        Also loads domains.json to include free/registered domains.
+        GET /api/locks
+        """
+        locks_dir = PERSIST_ROOT / "locks"
+        domains_file = PERSIST_ROOT / "domains.json"
+        now = datetime.now()
+        HEARTBEAT_DEAD_MINUTES = 30
+
+        # Load domain registry
+        domains = {}
+        if domains_file.exists():
+            try:
+                raw = json.loads(domains_file.read_text(encoding="utf-8"))
+                for name, meta in raw.items():
+                    domains[name] = meta
+                    for sub_name, sub_desc in meta.get("sub_domains", {}).items():
+                        domains[f"{name}:{sub_name}"] = {
+                            "description": sub_desc,
+                            "path": meta.get("path", ""),
+                            "parent": name,
+                        }
+            except Exception:
+                pass
+
+        claimed = []
+        free_list = []
+        reaped = []
+
+        # Read existing lock files
+        live_domains = set()
+        if locks_dir.exists():
+            for lock_file in locks_dir.glob("*.lock"):
+                try:
+                    data = json.loads(lock_file.read_text(encoding="utf-8"))
+                    domain = data.get("domain", lock_file.stem)
+                    live_domains.add(domain)
+
+                    hb_str = data.get("last_heartbeat", "")
+                    hb_age_min = None
+                    stale = False
+                    if hb_str:
+                        try:
+                            hb = datetime.strptime(hb_str.rstrip("Z"), "%Y-%m-%dT%H:%M:%S")
+                            hb_age_min = int((now - hb).total_seconds() / 60)
+                            if hb_age_min > HEARTBEAT_DEAD_MINUTES:
+                                stale = True
+                        except Exception:
+                            pass
+
+                    if stale:
+                        lock_file.unlink(missing_ok=True)
+                        reaped.append(domain)
+                        continue
+
+                    claimed.append({
+                        "domain": domain,
+                        "instance": data.get("instance", "unknown"),
+                        "claimed_at": data.get("claimed_at", ""),
+                        "last_heartbeat": hb_str,
+                        "heartbeat_age_min": hb_age_min,
+                        "pid": data.get("pid"),
+                        "description": data.get("description", ""),
+                        "is_sub_domain": ":" in domain,
+                        "registered": domain in domains,
+                    })
+                except Exception:
+                    lock_file.unlink(missing_ok=True)
+
+        # Remaining registered domains that have no lock = free
+        for domain in domains:
+            if domain not in live_domains and domain not in reaped:
+                free_list.append(domain)
+
+        self._send_json({
+            "ok": True,
+            "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "claimed": claimed,
+            "free": free_list,
+            "reaped": reaped,
+            "all_clear": len(claimed) == 0,
+        })
 
     def _handle_config_get(self):
         """Return current configuration."""
@@ -2071,6 +2499,9 @@ class HowellHandler(BaseHTTPRequestHandler):
             "comfyui_url", "max_recent_sessions",
             "heartbeat_interval_hours", "watcher_interval_seconds",
             "queue_interval_seconds", "moltbook_interval_seconds",
+            "cortex_enabled", "cortex_url",
+            "cortex_consolidation_hour", "cortex_dream_interval_hours",
+            "cortex_b_enabled", "cortex_b_url",
         }
         updated = {}
         errors = {}
@@ -2101,6 +2532,165 @@ class HowellHandler(BaseHTTPRequestHandler):
         result["config"] = get_full_config()
         log_session("config_update", f"Updated: {', '.join(updated.keys())}")
         self._send_json(result)
+
+    # ── Email Handlers ───────────────────────────────────────────────────
+
+    def _handle_email_queue(self, body: dict):
+        """Queue an email for review. POST /email/queue"""
+        to = body.get("to", [])
+        if isinstance(to, str):
+            to = [t.strip() for t in to.split(",")]
+        subject = body.get("subject", "")
+        email_body = body.get("body", "")
+        if not to or not subject:
+            self._send_json({"error": "Missing 'to' and/or 'subject'"}, 400)
+            return
+        envelope = queue_email(
+            to=to,
+            subject=subject,
+            body=email_body,
+            html=body.get("html", False),
+            cc=body.get("cc"),
+            bcc=body.get("bcc"),
+            source=body.get("source", "api"),
+            notes=body.get("notes", ""),
+        )
+        self._send_json({"ok": True, "id": envelope["id"], "status": "pending"})
+
+    def _handle_email_send(self, body: dict):
+        """Send an email immediately (no queue). POST /email/send"""
+        to = body.get("to", [])
+        if isinstance(to, str):
+            to = [t.strip() for t in to.split(",")]
+        subject = body.get("subject", "")
+        email_body = body.get("body", "")
+        if not to or not subject:
+            self._send_json({"error": "Missing 'to' and/or 'subject'"}, 400)
+            return
+        result = _smtp_send(
+            to=to,
+            subject=subject,
+            body=email_body,
+            html=body.get("html", False),
+            cc=body.get("cc"),
+            bcc=body.get("bcc"),
+        )
+        self._send_json(result, 200 if result.get("ok") else 500)
+
+    def _handle_email_approve(self, body: dict):
+        """Approve and send a queued email. POST /email/approve {id}"""
+        queue_id = body.get("id", "")
+        if not queue_id:
+            self._send_json({"error": "Missing 'id'"}, 400)
+            return
+        result = approve_email(queue_id)
+        self._send_json(result, 200 if result.get("ok") else 400)
+
+    def _handle_email_reject(self, body: dict):
+        """Reject a queued email. POST /email/reject {id, reason?}"""
+        queue_id = body.get("id", "")
+        reason = body.get("reason", "")
+        if not queue_id:
+            self._send_json({"error": "Missing 'id'"}, 400)
+            return
+        result = reject_email(queue_id, reason)
+        self._send_json(result, 200 if result.get("ok") else 400)
+
+    # ── Twilio Handlers ──────────────────────────────────────────────────
+
+    def _handle_twilio_sms(self, body: dict):
+        """Handle inbound SMS from Twilio webhook."""
+        from_num = body.get("From", "unknown")
+        to_num = body.get("To", TWILIO_PHONE)
+        sms_body = body.get("Body", "").strip()
+        msg_sid = body.get("MessageSid", "")
+
+        log_sms("inbound", from_num, to_num, sms_body, {"sid": msg_sid})
+
+        # Also drop into inbox so Howell sees it
+        try:
+            ensure_inbox()
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            inbox_file = INBOX_DIR / f"sms_{ts}_{from_num.replace('+','')}.md"
+            inbox_file.write_text(
+                f"# SMS from {from_num}\n\n"
+                f"**Received:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"{sms_body}\n",
+                encoding="utf-8",
+            )
+        except Exception as e:
+            print(f"[SMS] Failed to write inbox: {e}")
+
+        # Respond with TwiML — acknowledge receipt
+        twiml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response>"
+            "<Message>Received. Howell is processing your message.</Message>"
+            "</Response>"
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", "application/xml")
+        encoded = twiml.encode("utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _handle_twilio_voice(self, body: dict):
+        """Handle inbound voice call from Twilio webhook."""
+        from_num = body.get("From", "unknown")
+        call_sid = body.get("CallSid", "")
+        print(f"[VOICE] Incoming call from {from_num} (SID: {call_sid})")
+
+        # Log the call
+        log_sms("inbound", from_num, TWILIO_PHONE, "[VOICE CALL]", {
+            "type": "voice",
+            "call_sid": call_sid,
+            "call_status": body.get("CallStatus", ""),
+        })
+
+        # Respond with TwiML — short greeting and voicemail
+        twiml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response>"
+            "<Say voice=\"alice\">This is Howell, Ryan's AI assistant. "
+            "I can't take voice calls right now. "
+            "Please send a text message to this number instead. Goodbye.</Say>"
+            "<Hangup/>"
+            "</Response>"
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", "application/xml")
+        encoded = twiml.encode("utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _handle_twilio_status(self, body: dict):
+        """Handle Twilio status callback (delivery receipts)."""
+        msg_sid = body.get("MessageSid", body.get("CallSid", ""))
+        status = body.get("MessageStatus", body.get("CallStatus", "unknown"))
+        print(f"[TWILIO STATUS] {msg_sid}: {status}")
+        self._send_json({"ok": True})
+
+    def _handle_twilio_send(self, body: dict):
+        """Send an outbound SMS. Requires auth (not in _NO_AUTH_ROUTES)."""
+        to = body.get("to", "")
+        message = body.get("body", body.get("message", ""))
+        if not to or not message:
+            self._send_json({"error": "Missing 'to' and/or 'body'"}, 400)
+            return
+        # Normalize phone number
+        if not to.startswith("+"):
+            to = "+1" + to.replace("-", "").replace("(", "").replace(")", "").replace(" ", "")
+        result = send_sms(to, message)
+        self._send_json(result, 200 if result.get("ok") else 500)
+
+    def _handle_twilio_log(self):
+        """Get SMS log (GET endpoint)."""
+        messages = get_sms_log(limit=50)
+        self._send_json({"messages": messages, "stats": sms_stats()})
+
+    # ── GitHub Webhook ───────────────────────────────────────────────────
 
     def _handle_github_webhook(self, body: dict):
         """Handle GitHub webhook events. Creates tasks from issues, PRs, and pushes."""
@@ -2212,6 +2802,470 @@ class HowellHandler(BaseHTTPRequestHandler):
 
 
 # ============================================================================
+# CORTEX INTEGRATION (howell-cortex on :7778)
+# ============================================================================
+
+CORTEX_URL = "http://localhost:7778"
+
+def _cortex_enabled() -> bool:
+    """Check if cortex integration is enabled in config."""
+    try:
+        cfg = get_full_config()
+        return cfg.get("cortex_enabled", False)
+    except Exception:
+        return False
+
+def _cortex_available() -> bool:
+    """Check if cortex server is running. Fast check with 2s timeout."""
+    if not _cortex_enabled():
+        return False
+    try:
+        resp = urllib.request.urlopen(f"{CORTEX_URL}/cortex/health", timeout=2)
+        return resp.status == 200
+    except Exception:
+        return False
+
+def _cortex_post(endpoint: str, payload: dict, timeout: int = 45) -> dict | None:
+    """POST to cortex server. Returns parsed JSON or None on failure."""
+    try:
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            f"{CORTEX_URL}{endpoint}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return json.loads(resp.read())
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] {endpoint} failed: {e}")
+        return None
+
+def _cortex_digest_async(session_data: dict):
+    """Fire-and-forget cortex digest after session end."""
+    def _do_digest():
+        try:
+            if not _cortex_available():
+                return
+
+            payload = {
+                "agent_id": session_data.get("agent_id", "unknown"),
+                "workspace": session_data.get("workspace", "unknown"),
+                "created_at": session_data.get("created_at", datetime.now().isoformat()),
+                "ended_at": datetime.now().isoformat(),
+                "end_summary": session_data.get("summary", ""),
+                "notes": session_data.get("notes", []),
+                "file_changes": session_data.get("file_changes", []),
+            }
+
+            result = _cortex_post("/cortex/digest", payload, timeout=45)
+            if result:
+                kg_ops = result.get("kg_operations", [])
+                log_session("cortex_digest", f"Processed: {len(kg_ops)} KG ops proposed")
+
+                # Novelty signal: score this session for adaptive dreaming
+                score, ne, nr, no = _compute_novelty_score(session_data, kg_ops)
+                _write_novelty_state(score, ne, nr, no)
+
+                # Phase 5 (shadow): Log to applied.jsonl, don't apply to KG
+                applied_dir = PERSIST_ROOT / "cortex"
+                applied_dir.mkdir(parents=True, exist_ok=True)
+                with open(applied_dir / "applied.jsonl", "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "timestamp": datetime.now().isoformat(),
+                        "type": "digest",
+                        "agent_id": payload["agent_id"],
+                        "result": result,
+                        "applied": False,
+                    }) + "\n")
+
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Digest failed (non-fatal): {e}")
+
+    threading.Thread(target=_do_digest, daemon=True).start()
+
+def _cortex_get_briefing(workspace: str, agent_context: dict) -> dict | None:
+    """Get a cortex briefing for bootstrap.
+    Queries Archivist for main briefing + Explorer for creative sidebar (if available).
+    Returns merged dict or None. 15s total timeout cap."""
+    try:
+        if not _cortex_available():
+            return None
+
+        recent_sessions = []
+        for agent in agent_context.get("agent_history", []):
+            recent_sessions.append({
+                "agent_id": agent.get("id", ""),
+                "workspace": agent.get("workspace", workspace),
+                "summary": agent.get("end_summary", ""),
+                "created_at": agent.get("created_at", ""),
+                "notes": [n.get("content", "")[:100] for n in agent.get("key_notes", [])],
+            })
+
+        now = datetime.now().isoformat()
+        payload = {
+            "workspace": workspace,
+            "recent_sessions": recent_sessions[:5],
+            "relevant_entities": {},
+            "open_tasks": [],
+            "file_changes_since_last_session": [],
+            "current_datetime": now,
+            "days_since_last_session": 0,
+        }
+
+        # Archivist: conservative, factual briefing
+        briefing = _cortex_post("/cortex/briefing", payload, timeout=10)
+        if not briefing:
+            return None
+
+        # Explorer: creative sidebar — watch-for patterns, questions, connections
+        # Use cortex-B if available (laptop Explorer), fall back to cortex-A Explorer model
+        sidebar_payload = {
+            k: payload[k] for k in ("workspace", "recent_sessions", "relevant_entities",
+                                    "open_tasks", "current_datetime")
+        }
+        sidebar = None
+        if _cortex_b_available():
+            # True dual-query: cortex-B also runs the full briefing — compare predicted_intent
+            b_briefing = _cortex_b_post("/cortex/briefing", payload, timeout=10)
+            sidebar = _cortex_b_post("/cortex/sidebar", sidebar_payload, timeout=10)
+            if b_briefing and _responses_disagree(briefing, b_briefing, "predicted_intent"):
+                _log_disagreement(
+                    task_type="briefing",
+                    prompt_summary=f"workspace={workspace}, sessions={len(recent_sessions)}",
+                    a_response={"predicted_intent": briefing.get("predicted_intent", "")},
+                    b_response={"predicted_intent": b_briefing.get("predicted_intent", "")},
+                    disagreement_type="interpretive",
+                )
+                # Attach Explorer's alternate intent as additional context
+                briefing["b_predicted_intent"] = b_briefing.get("predicted_intent", "")
+        else:
+            sidebar = _cortex_post("/cortex/sidebar", sidebar_payload, timeout=10)
+
+        if sidebar:
+            briefing["explorer_sidebar"] = sidebar
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Briefing + Explorer sidebar ready")
+        else:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Briefing ready (no sidebar)")
+
+        return briefing
+
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Briefing failed (non-fatal): {e}")
+        return None
+
+def _background_cortex_consolidation():
+    """Run KG consolidation via cortex once per day at 3 AM."""
+    CONSOLIDATION_HOUR = 3
+
+    while True:
+        now = datetime.now()
+        if now.hour == CONSOLIDATION_HOUR:
+            try:
+                if _cortex_available():
+                    kg = load_knowledge()
+                    entity_items = list(kg.entities.items())[:50]
+
+                    entities_payload = {}
+                    for name, entity in entity_items:
+                        obs = entity.observations[:10]
+                        # Handle both string and structured observations
+                        obs_text = []
+                        for o in obs:
+                            if isinstance(o, dict):
+                                obs_text.append(o.get("text", str(o)))
+                            else:
+                                obs_text.append(str(o))
+                        entities_payload[name] = {
+                            "entityType": entity.entity_type,
+                            "observations": obs_text,
+                        }
+
+                    relations_payload = [
+                        {"from": r.from_entity, "to": r.to_entity, "relationType": r.relation_type}
+                        for r in kg.relations[:100]
+                    ]
+
+                    result = _cortex_post("/cortex/consolidate", {
+                        "entities": entities_payload,
+                        "relations": relations_payload,
+                    }, timeout=60)
+
+                    if result:
+                        actions = result.get("actions", [])
+                        warnings = result.get("warnings", [])
+                        log_session("cortex_consolidation",
+                                    f"{len(actions)} actions, {len(warnings)} warnings")
+
+                        # Write to cortex/applied.jsonl for review
+                        applied_dir = PERSIST_ROOT / "cortex"
+                        applied_dir.mkdir(parents=True, exist_ok=True)
+                        with open(applied_dir / "applied.jsonl", "a", encoding="utf-8") as f:
+                            f.write(json.dumps({
+                                "timestamp": datetime.now().isoformat(),
+                                "type": "consolidation",
+                                "result": result,
+                                "applied": False,
+                            }) + "\n")
+
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Consolidation: {len(actions)} actions queued for review")
+
+            except Exception as e:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Consolidation failed (non-fatal): {e}")
+
+            time.sleep(3700)  # Don't run again this hour
+        else:
+            time.sleep(300)  # Check every 5 minutes
+
+# ============================================================================
+# NOVELTY SIGNAL — adaptive Archivist/Explorer ratio
+# ============================================================================
+
+def _compute_novelty_score(session_data: dict, kg_ops: list) -> tuple:
+    """Score session novelty from KG ops + text signals.
+    Returns (score, new_entities, new_relations, new_observations)."""
+    new_entities    = sum(1 for op in kg_ops if op.get("type") in ("create_entity", "add_entity"))
+    new_relations   = sum(1 for op in kg_ops if op.get("type") in ("create_relation", "add_relation"))
+    new_observations= sum(1 for op in kg_ops if op.get("type") == "add_observation")
+    # Text fallback: word density of what_learned
+    text = (session_data.get("what_learned") or session_data.get("summary", ""))
+    text_score = min(5, len(text.split()) // 50)  # 1 pt per 50 words, max 5
+    score = new_entities * 3 + new_relations * 2 + new_observations + text_score
+    return score, new_entities, new_relations, new_observations
+
+
+def _write_novelty_state(score: int, new_entities: int, new_relations: int, new_observations: int) -> dict:
+    """Persist novelty state after session end. Dreaming thread reads this to adapt ratio."""
+    THRESHOLD = 5
+    mode = "high_novelty" if score >= THRESHOLD else "low_novelty"
+    # High novelty → Archivist dominates (consolidate first, dream cautiously)
+    # Low novelty  → Explorer dominates (routine day = good time to roam)
+    archivist_weight = 0.70 if mode == "high_novelty" else 0.30
+    explorer_weight  = 1.0 - archivist_weight
+    state = {
+        "session_timestamp": datetime.now().isoformat(),
+        "novelty_score": score,
+        "mode": mode,
+        "new_entities": new_entities,
+        "new_relations": new_relations,
+        "new_observations": new_observations,
+        "archivist_weight": archivist_weight,
+        "explorer_weight": explorer_weight,
+    }
+    nf = PERSIST_ROOT / "cortex" / "novelty_state.json"
+    nf.parent.mkdir(parents=True, exist_ok=True)
+    nf.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Novelty score={score} ({mode}) — archivist={archivist_weight:.0%}, explorer={explorer_weight:.0%}")
+    return state
+
+
+def _read_novelty_state() -> dict:
+    """Read current novelty state. Default = low novelty (dream freely) if not found."""
+    nf = PERSIST_ROOT / "cortex" / "novelty_state.json"
+    try:
+        if nf.exists():
+            return json.loads(nf.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {"mode": "low_novelty", "explorer_weight": 0.70, "archivist_weight": 0.30, "novelty_score": 0}
+
+
+# ============================================================================
+# CORTEX-B — Explorer on laptop (RTX 5070 Ti)
+# ============================================================================
+
+def _cortex_b_enabled() -> bool:
+    """Check if cortex-B (Explorer on laptop) is configured."""
+    try:
+        cfg = get_full_config()
+        return bool(cfg.get("cortex_b_enabled", False)) and bool(cfg.get("cortex_b_url", ""))
+    except Exception:
+        return False
+
+
+def _get_cortex_b_url() -> str:
+    try:
+        return get_full_config().get("cortex_b_url", "")
+    except Exception:
+        return ""
+
+
+def _cortex_b_available() -> bool:
+    """Check if cortex-B (Explorer laptop) is reachable. 3s timeout."""
+    if not _cortex_b_enabled():
+        return False
+    url = _get_cortex_b_url()
+    if not url:
+        return False
+    try:
+        resp = urllib.request.urlopen(f"{url}/cortex/health", timeout=3)
+        return resp.status == 200
+    except Exception:
+        return False
+
+
+def _cortex_b_post(endpoint: str, payload: dict, timeout: int = 45) -> dict | None:
+    """POST to cortex-B (Explorer on laptop). Returns parsed JSON or None."""
+    url = _get_cortex_b_url()
+    if not url:
+        return None
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{url}{endpoint}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX-B] {endpoint} failed: {e}")
+        return None
+
+
+# ============================================================================
+# DUAL-QUERY ARBITRATION — disagreements.jsonl
+# ============================================================================
+
+def _log_disagreement(task_type: str, prompt_summary: str,
+                      a_response: dict, b_response: dict,
+                      disagreement_type: str = "interpretive") -> None:
+    """Log a disagreement between Archivist (A) and Explorer (B) responses.
+    Disagreement data is training gold — becomes a training pair once resolved.
+
+    disagreement_type: 'factual' | 'interpretive' | 'confidence-level'
+    """
+    record = {
+        "timestamp": datetime.now().isoformat(),
+        "task_type": task_type,
+        "prompt_summary": prompt_summary[:200],
+        "archivist_response": a_response,
+        "explorer_response": b_response,
+        "disagreement_type": disagreement_type,
+        "resolution": None,       # Filled when Claude or user resolves
+        "resolved_by": None,      # 'claude' | 'user' | 'auto-converged'
+    }
+    dfile = PERSIST_ROOT / "cortex" / "disagreements.jsonl"
+    dfile.parent.mkdir(parents=True, exist_ok=True)
+    with open(dfile, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Disagreement logged: {task_type} ({disagreement_type})")
+
+
+def _responses_disagree(a: dict, b: dict, key: str, threshold: float = 0.6) -> bool:
+    """Simple heuristic: check if two string fields are substantially different.
+    Uses word-overlap Jaccard similarity — no external deps needed."""
+    def words(s: str) -> set:
+        return set(str(s).lower().split())
+    w_a, w_b = words(a.get(key, "")), words(b.get(key, ""))
+    if not w_a or not w_b:
+        return False
+    overlap = len(w_a & w_b) / max(len(w_a | w_b), 1)
+    return overlap < threshold  # below threshold = substantially different
+
+
+def _background_cortex_dreaming():
+    """Explorer dreams over KG. Novelty-adaptive: defers to Archivist after busy sessions.
+    Routes /dream to cortex-B (laptop) when available, falls back to cortex-A."""
+    import random
+    BASE_INTERVAL = 8 * 3600
+
+    time.sleep(BASE_INTERVAL)  # Initial delay — don't dream on startup
+    while True:
+        try:
+            # --- Novelty gate ---
+            novelty = _read_novelty_state()
+            explorer_weight = novelty.get("explorer_weight", 0.70)
+            mode = novelty.get("mode", "low_novelty")
+
+            # High novelty → 70% chance to skip dreaming (Archivist should consolidate first)
+            if mode == "high_novelty" and random.random() > explorer_weight:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Dreaming deferred "
+                      f"(high-novelty session, explorer_weight={explorer_weight:.0%})")
+                time.sleep(BASE_INTERVAL)
+                continue
+
+            # --- Cortex routing: prefer B (laptop Explorer) for dreaming ---
+            use_b = _cortex_b_available()
+            if use_b:
+                dream_fn, label = _cortex_b_post, "CORTEX-B"
+            elif _cortex_available():
+                dream_fn, label = _cortex_post, "CORTEX-A"
+            else:
+                time.sleep(BASE_INTERVAL)
+                continue
+
+            kg = load_knowledge()
+            entity_names = list(kg.entities.keys())
+            # Scale sample with explorer_weight — dream bigger in low-novelty mode
+            sample_size = min(int(20 * (0.5 + explorer_weight)), len(entity_names))
+            if sample_size < 3:
+                time.sleep(BASE_INTERVAL)
+                continue
+
+            sample_names = random.sample(entity_names, sample_size)
+            entities_payload = {}
+            for name in sample_names:
+                entity = kg.entities[name]
+                obs = entity.observations[:5]
+                obs_text = [o.get("text", str(o)) if isinstance(o, dict) else str(o) for o in obs]
+                entities_payload[name] = {
+                    "entityType": entity.entity_type,
+                    "observations": obs_text,
+                }
+
+            relations_payload = [
+                {"from": r.from_entity, "to": r.to_entity, "relationType": r.relation_type}
+                for r in kg.relations
+                if r.from_entity in sample_names or r.to_entity in sample_names
+            ]
+
+            # Step 1: Dream — Explorer (high temp), routed to cortex-B when available
+            dream_result = dream_fn("/cortex/dream", {
+                "entities": entities_payload,
+                "relations": relations_payload,
+                "novelty_mode": mode,
+                "explorer_weight": explorer_weight,
+            }, timeout=45)
+
+            if dream_result:
+                # Step 2: Filter — always Archivist (cortex-A), conservative
+                filter_result = _cortex_post("/cortex/dream_filter", {
+                    "raw_dream": dream_result.get("raw_dream", ""),
+                    "hypotheses": dream_result.get("hypotheses", []),
+                    "questions": dream_result.get("questions", []),
+                }, timeout=30)
+
+                if filter_result:
+                    insights = filter_result.get("filtered_insights", [])
+                    surfaceable = filter_result.get("surfaceable", False)
+
+                    dream_dir = PERSIST_ROOT / "cortex"
+                    dream_dir.mkdir(parents=True, exist_ok=True)
+                    with open(dream_dir / "dreams.jsonl", "a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "timestamp": datetime.now().isoformat(),
+                            "novelty_mode": mode,
+                            "explorer_weight": explorer_weight,
+                            "cortex_source": "B" if use_b else "A",
+                            "dream": dream_result,
+                            "filtered": filter_result,
+                            "surfaceable": surfaceable,
+                        }) + "\n")
+
+                    log_session("cortex_dream",
+                                f"{len(insights)} insights, surfaceable={surfaceable}, source={'B' if use_b else 'A'}")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [{label}] Dream: {len(insights)} insights "
+                          f"(mode={mode}, sample={sample_size} entities)")
+
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [CORTEX] Dream failed (non-fatal): {e}")
+
+        time.sleep(BASE_INTERVAL)
+
+
+# ============================================================================
 # BACKGROUND HEARTBEAT
 # ============================================================================
 
@@ -2253,6 +3307,66 @@ def _background_heartbeat():
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Background heartbeat OK")
         except Exception as e:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Heartbeat error: {e}")
+
+        # Auto-create consolidation task if urgency is high
+        try:
+            urgency = consolidation_urgency()
+            if urgency["needs_consolidation"]:
+                # Check if a pending consolidation task already exists
+                existing = list_tasks()
+                has_pending = any(
+                    t.get("title", "").lower().startswith("consolidat")
+                    and t.get("status") in ("pending", "claimed", "in-progress")
+                    for t in existing
+                )
+                if not has_pending:
+                    create_task(
+                        title="Consolidation Due",
+                        description=urgency["summary"],
+                        priority="medium",
+                        scope_tags=["consolidation"],
+                    )
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Created consolidation task (score={urgency['score']})")
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Consolidation check error: {e}")
+
+        # Recover orphaned agent sessions (stale > 30 min with no activity)
+        try:
+            recovered = agent_db.recover_orphaned_agents(max_age_minutes=30)
+            for agent in recovered:
+                summary = agent.get("end_summary", "")
+                try:
+                    end_session(summary=summary, what_learned="[auto-recovered by watchdog]")
+                    log_session("orphan_recovery", f"Agent {agent['id']} auto-closed")
+                except Exception:
+                    pass  # end_session failure shouldn't block other recoveries
+            if recovered:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Recovered {len(recovered)} orphaned agent(s)")
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Orphan recovery error: {e}")
+
+def _background_orphan_recovery():
+    """Recover orphaned agent sessions every 10 minutes.
+    
+    Separate from the 6-hour heartbeat so stale sessions get caught quickly.
+    An agent is 'orphaned' if it's been active >30 min with no recent notes.
+    Recovery: auto-close the agent, write a summary to RECENT.md.
+    """
+    while True:
+        time.sleep(600)  # 10 minutes
+        try:
+            recovered = agent_db.recover_orphaned_agents(max_age_minutes=30)
+            for agent in recovered:
+                summary = agent.get("end_summary", "")
+                try:
+                    end_session(summary=summary, what_learned="[auto-recovered by orphan monitor]")
+                    log_session("orphan_recovery", f"Agent {agent['id']} auto-closed")
+                except Exception:
+                    pass
+            if recovered:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [ORPHAN] Recovered {len(recovered)} stale agent(s)")
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [ORPHAN] Error: {e}")
 
 # ============================================================================
 # MAIN
@@ -2307,9 +3421,38 @@ def main():
     print("  Auth: X-API-Key header or ?key= query param")
     print()
     
+    # Auto-start cortex server if enabled and not already running
+    if _cortex_enabled():
+        import socket as _socket
+        _cortex_running = False
+        try:
+            with _socket.create_connection(("localhost", 7778), timeout=2):
+                _cortex_running = True
+        except Exception:
+            pass
+        if _cortex_running:
+            print("Cortex server: already running on :7778")
+        else:
+            import subprocess as _subprocess
+            _cortex_script = Path(r"C:\rje\dev\howell-cortex\cortex_server.py")
+            if _cortex_script.exists():
+                _subprocess.Popen(
+                    [sys.executable, str(_cortex_script)],
+                    cwd=str(_cortex_script.parent),
+                    creationflags=getattr(_subprocess, "CREATE_NO_WINDOW", 0),
+                    stdout=_subprocess.DEVNULL,
+                    stderr=_subprocess.DEVNULL,
+                )
+                print("Cortex server: started on :7778")
+            else:
+                print(f"Cortex server: script not found at {_cortex_script}")
+
     # Start background threads (wrapped in watchdog for auto-restart)
     heartbeat_thread = threading.Thread(target=_watchdog, args=("heartbeat", _background_heartbeat), daemon=True)
     heartbeat_thread.start()
+    
+    orphan_thread = threading.Thread(target=_watchdog, args=("orphan_recovery", _background_orphan_recovery), daemon=True)
+    orphan_thread.start()
     
     watcher_thread = threading.Thread(target=_watchdog, args=("watcher", background_file_watcher), daemon=True)
     watcher_thread.start()
@@ -2320,7 +3463,54 @@ def main():
     moltbook_thread = threading.Thread(target=_watchdog, args=("moltbook", background_moltbook_scheduler), daemon=True)
     moltbook_thread.start()
     
-    print("Background: heartbeat (6h), watcher (30s), queue (10s), moltbook (60s)")
+    # Cortex background threads (only start if cortex enabled)
+    if _cortex_enabled():
+        cortex_consol_thread = threading.Thread(
+            target=_watchdog, args=("cortex_consolidation", _background_cortex_consolidation),
+            daemon=True,
+        )
+        cortex_consol_thread.start()
+
+        cortex_dream_thread = threading.Thread(
+            target=_watchdog, args=("cortex_dream", _background_cortex_dreaming),
+            daemon=True,
+        )
+        cortex_dream_thread.start()
+
+        # Cortex-B (Explorer on laptop) — start locally on :7779 if url is local, else remote
+        _b_url = _get_cortex_b_url() if _cortex_b_enabled() else ""
+        if _b_url and ("localhost" in _b_url or "127.0.0.1" in _b_url):
+            import socket as _socket
+            _b_port = int(_b_url.split(":")[-1]) if ":" in _b_url else 7779
+            _b_running = False
+            try:
+                with _socket.create_connection(("localhost", _b_port), timeout=2):
+                    _b_running = True
+            except Exception:
+                pass
+            if _b_running:
+                print(f"Cortex-B (Explorer): already running on :{_b_port}")
+            else:
+                import subprocess as _subproc
+                _b_script = Path(r"C:\rje\dev\howell-cortex\cortex_server.py")
+                if _b_script.exists():
+                    _subproc.Popen(
+                        [sys.executable, str(_b_script), "--port", str(_b_port)],
+                        cwd=str(_b_script.parent),
+                        creationflags=getattr(_subproc, "CREATE_NO_WINDOW", 0),
+                        stdout=_subproc.DEVNULL,
+                        stderr=_subproc.DEVNULL,
+                    )
+                    print(f"Cortex-B (Explorer): started on :{_b_port}")
+        elif _b_url:
+            print(f"Cortex-B (Explorer): remote at {_b_url} — start cortex_server.py on laptop")
+
+        novelty = _read_novelty_state()
+        print(f"Cortex: consolidation (daily 3AM), dreaming (8h) | novelty_mode={novelty.get('mode', 'unknown')}")
+    else:
+        print("Cortex: disabled (set cortex_enabled=true in config to activate)")
+
+    print("Background: heartbeat (6h), orphan recovery (10m), watcher (30s), queue (10s), moltbook (60s)")
     print("Press Ctrl+C to stop")
     print()
     

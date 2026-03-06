@@ -671,6 +671,16 @@
     <div class="soul-block" id="soulBlock"><div class="loading">loading identity</div></div>
   </details>
 
+  <!-- ═══════════════════════════════════════════════ -->
+  <!--  DOMAIN LOCKS (collapsible)                    -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <details class="section-collapsible" id="locksSection">
+    <summary>🔒 Domain Locks</summary>
+    <div id="locksContainer">
+      <div class="loading">loading lock state…</div>
+    </div>
+  </details>
+
 </div>
 
 <div class="footer">
@@ -1232,6 +1242,90 @@ function simpleMarkdown(text) {
 // ══════════════════════════════════════════════════════
 window.addEventListener('resize', () => {
   if (nodes.length) renderGraph();
+});
+
+// ══════════════════════════════════════════════════════
+//  DOMAIN LOCKS
+// ══════════════════════════════════════════════════════
+let _locksRefreshTimer = null;
+
+async function loadLocks() {
+  const container = document.getElementById('locksContainer');
+  if (!container) return;
+  container.innerHTML = '<div class="loading">loading…</div>';
+  try {
+    const data = await fetchJSON('/api/locks');
+    const claimed = data.claimed || [];
+    const free = data.free || [];
+    const reaped = data.reaped || [];
+
+    let html = `<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.6rem">`;
+    if (data.all_clear) {
+      html += `<span style="color:#34d399;font-weight:600">✓ All clear — no active locks</span>`;
+    } else {
+      html += `<span style="color:#fb923c;font-weight:600">⚠ ${claimed.length} domain${claimed.length !== 1 ? 's' : ''} locked</span>`;
+    }
+    html += `<button onclick="loadLocks()" style="margin-left:auto;padding:0.2rem 0.6rem;font-size:0.7rem;background:#1e1e2e;border:1px solid #3a3a5c;border-radius:4px;color:#a0a0c0;cursor:pointer">refresh</button></div>`;
+
+    if (claimed.length > 0) {
+      html += `<table style="width:100%;border-collapse:collapse;font-size:0.78rem">`;
+      html += `<thead><tr style="color:#6b6b8a;border-bottom:1px solid #2a2a3e">`;
+      html += `<th style="text-align:left;padding:0.25rem 0.4rem">Domain</th>`;
+      html += `<th style="text-align:left;padding:0.25rem 0.4rem">Instance</th>`;
+      html += `<th style="text-align:left;padding:0.25rem 0.4rem">Since</th>`;
+      html += `<th style="text-align:left;padding:0.25rem 0.4rem">Heartbeat</th>`;
+      html += `<th style="text-align:left;padding:0.25rem 0.4rem">Task</th>`;
+      html += `</tr></thead><tbody>`;
+      for (const lock of claimed) {
+        const hbAge = lock.heartbeat_age_min !== null ? `${lock.heartbeat_age_min}m ago` : '—';
+        const hbWarn = lock.heartbeat_age_min !== null && lock.heartbeat_age_min > 15
+          ? ` style="color:#fb923c"` : '';
+        const since = lock.claimed_at ? lock.claimed_at.slice(11, 16) + 'Z' : '—';
+        const sub = lock.is_sub_domain
+          ? `<span style="color:#6b6b8a">${lock.domain.split(':')[0]}:</span><strong>${lock.domain.split(':')[1]}</strong>`
+          : `<strong>${lock.domain}</strong>`;
+        html += `<tr style="border-bottom:1px solid #1e1e2e">`;
+        html += `<td style="padding:0.3rem 0.4rem">${sub}</td>`;
+        html += `<td style="padding:0.3rem 0.4rem;color:#818cf8">${lock.instance}</td>`;
+        html += `<td style="padding:0.3rem 0.4rem">${since}</td>`;
+        html += `<td style="padding:0.3rem 0.4rem"${hbWarn}>${hbAge}</td>`;
+        html += `<td style="padding:0.3rem 0.4rem;color:#a0a0c0;font-size:0.72rem">${lock.description || '—'}</td>`;
+        html += `</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+
+    if (free.length > 0) {
+      html += `<div style="margin-top:0.6rem;font-size:0.75rem;color:#4a4a6a">`;
+      html += `Free: ${free.join(', ')}`;
+      html += `</div>`;
+    }
+
+    if (reaped.length > 0) {
+      html += `<div style="margin-top:0.3rem;font-size:0.72rem;color:#6b4a4a">`;
+      html += `⚠ Reaped stale: ${reaped.join(', ')}`;
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<div style="color:#6b6b8a;font-size:0.8rem">— lock endpoint unavailable (${e.message})</div>`;
+  }
+}
+
+// Auto-refresh locks when section is open
+document.addEventListener('DOMContentLoaded', () => {
+  const sec = document.getElementById('locksSection');
+  if (sec) {
+    sec.addEventListener('toggle', () => {
+      if (sec.open) {
+        loadLocks();
+        _locksRefreshTimer = setInterval(loadLocks, 30000);
+      } else {
+        clearInterval(_locksRefreshTimer);
+      }
+    });
+  }
 });
 
 (async function init() {

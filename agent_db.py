@@ -641,6 +641,83 @@ def preview_context(workspace: str) -> dict:
     }
 
 
+def recover_orphaned_agents(max_age_minutes: int = 30) -> list[dict]:
+    """
+    Find agents that have been active (ended_at IS NULL) for too long
+    without any recent notes, and auto-close them with a summary built
+    from their accumulated notes.
+    
+    Returns list of recovered agent records with their auto-summaries.
+    Called by the daemon heartbeat to prevent session evaporation.
+    """
+    cutoff = datetime.now().timestamp() - (max_age_minutes * 60)
+    recovered = []
+
+    with _lock:
+        conn = _connect()
+        try:
+            # Find active agents older than cutoff
+            rows = conn.execute(
+                "SELECT * FROM agents WHERE ended_at IS NULL ORDER BY created_at ASC"
+            ).fetchall()
+
+            for row in rows:
+                agent = dict(row)
+                try:
+                    created_ts = datetime.fromisoformat(agent["created_at"]).timestamp()
+                except (ValueError, TypeError):
+                    continue
+
+                # Skip if too young
+                if created_ts > cutoff:
+                    continue
+
+                # Check for recent notes (activity indicator)
+                latest_note = conn.execute(
+                    "SELECT created_at FROM notes WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (agent["id"],)
+                ).fetchone()
+
+                if latest_note:
+                    try:
+                        note_ts = datetime.fromisoformat(latest_note["created_at"]).timestamp()
+                        # If there was a note within the last max_age_minutes, agent might still be alive
+                        if note_ts > cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                # Agent is stale — build auto-summary from its notes
+                notes = conn.execute(
+                    "SELECT category, content FROM notes WHERE agent_id = ? ORDER BY created_at ASC",
+                    (agent["id"],)
+                ).fetchall()
+
+                if notes:
+                    summary_parts = []
+                    for n in notes:
+                        summary_parts.append(f"[{n['category']}] {n['content'][:120]}")
+                    auto_summary = f"[AUTO-RECOVERED] {len(notes)} notes: " + " | ".join(summary_parts[:5])
+                else:
+                    auto_summary = "[AUTO-RECOVERED] No notes captured before session ended."
+
+                # Close the agent
+                now = datetime.now().isoformat()
+                conn.execute(
+                    "UPDATE agents SET ended_at = ?, end_summary = ? WHERE id = ?",
+                    (now, auto_summary, agent["id"])
+                )
+                agent["end_summary"] = auto_summary
+                agent["ended_at"] = now
+                recovered.append(agent)
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    return recovered
+
+
 def bootstrap_context(workspace: str, agent_id: str) -> dict:
     """
     Everything a new agent needs at bootstrap.

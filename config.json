@@ -7,5 +7,7 @@
   "watcher_interval_seconds": 30,
   "queue_interval_seconds": 10,
   "moltbook_interval_seconds": 60,
-  "comfyui_url": "http://127.0.0.1:8188"
+  "comfyui_url": "http://127.0.0.1:8188",
+  "cortex_b_enabled": false,
+  "cortex_b_url": ""
 }

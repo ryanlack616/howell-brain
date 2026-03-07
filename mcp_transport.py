@@ -52,6 +52,11 @@ MCP_TOOLS = [
                 "workspace": {
                     "type": "string",
                     "description": "Optional workspace path or project name. When provided, KG entities are filtered to those relevant to this workspace. Also marks the agent's workspace in stratigraphy."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["json", "hcl"],
+                    "description": "Output format. 'hcl' = Howell Compact Language (~60-70% smaller), 'json' = standard JSON. Default: 'json'."
                 }
             },
             "required": []
@@ -505,7 +510,7 @@ def _load_dream_digest() -> dict | None:
 # TOOL IMPLEMENTATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _tool_bootstrap(mode: str = "auto", workspace: str = ""):
+def _tool_bootstrap(mode: str = "auto", workspace: str = "", format: str = "json"):
     """Load context for session start or continuation. Auto-registers agent in stratigraphy."""
     global _current_agent_id
 
@@ -576,7 +581,7 @@ def _tool_bootstrap(mode: str = "auto", workspace: str = ""):
         if resolved_from_auto:
             result["_resolved_from"] = "auto"
         result["_context_kb"] = round(len(json.dumps(result)) / 1024, 1)
-        return result
+        return result  # micro is too small for HCL overhead
     # ────────────────────────────────────────────────────────────────────
 
     # ── Continue mode: lightweight, skip identity dump ──────────────────
@@ -594,7 +599,7 @@ def _tool_bootstrap(mode: str = "auto", workspace: str = ""):
         if resolved_from_auto:
             result["_resolved_from"] = "auto"
         result["_context_kb"] = round(len(json.dumps(result)) / 1024, 1)
-        return result
+        return _encode_hcl(result) if format == "hcl" else result
     # ────────────────────────────────────────────────────────────────────
 
     # ── Warm mode: new session with prior summary ──────────────────────
@@ -633,7 +638,7 @@ def _tool_bootstrap(mode: str = "auto", workspace: str = ""):
         if resolved_from_auto:
             result["_resolved_from"] = "auto"
         result["_context_kb"] = round(len(json.dumps(result)) / 1024, 1)
-        return result
+        return _encode_hcl(result) if format == "hcl" else result
     # ────────────────────────────────────────────────────────────────────
 
     # ── Compact mode: full identity + entity index (no observations) ───
@@ -690,7 +695,7 @@ def _tool_bootstrap(mode: str = "auto", workspace: str = ""):
         if resolved_from_auto:
             compact_result["_resolved_from"] = "auto"
         compact_result["_context_kb"] = round(len(json.dumps(compact_result)) / 1024, 1)
-        return compact_result
+        return _encode_hcl(compact_result) if format == "hcl" else compact_result
     # ────────────────────────────────────────────────────────────────────
 
     # ── Full mode: cold start, load everything ──────────────────────────
@@ -753,7 +758,38 @@ def _tool_bootstrap(mode: str = "auto", workspace: str = ""):
     if resolved_from_auto:
         result["_resolved_from"] = "auto"
     result["_context_kb"] = round(len(json.dumps(result)) / 1024, 1)
+
+    # ── HCL encoding (if requested) ─────────────────────────────────────
+    if format == "hcl":
+        return _encode_hcl(result)
+    # ────────────────────────────────────────────────────────────────────
     return result
+
+
+def _load_hcl():
+    """Load the HCL encoder module from context-rings."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "hcl", r"C:\rje\dev\context-rings\hcl.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _encode_hcl(result: dict) -> dict:
+    """Encode a bootstrap result dict as HCL. Returns a wrapper dict with _hcl_text."""
+    try:
+        hcl = _load_hcl()
+        encoded = hcl.encode_with_stats(result)
+        return {
+            "_hcl": True,
+            "_hcl_text": encoded["hcl"],
+            "_stats": encoded["stats"],
+        }
+    except Exception as e:
+        result["_hcl_error"] = str(e)
+        return result
 
 
 def _tool_status():
@@ -1437,7 +1473,7 @@ def _tool_context_shed(args):
 # ── Tool Dispatcher ──────────────────────────────────────────────────────────
 
 _TOOL_MAP = {
-    "howell_bootstrap": lambda a: _tool_bootstrap(mode=a.get("mode", "auto"), workspace=a.get("workspace", "")),
+    "howell_bootstrap": lambda a: _tool_bootstrap(mode=a.get("mode", "auto"), workspace=a.get("workspace", ""), format=a.get("format", "json")),
     "howell_status": lambda a: _tool_status(),
     "howell_add_entity": _tool_add_entity,
     "howell_add_observation": _tool_add_observation,
@@ -1523,11 +1559,18 @@ def _process_jsonrpc(request: dict) -> dict | None:
         try:
             result = handler_fn(arguments)
             is_error = isinstance(result, dict) and "error" in result and len(result) == 1
+            # HCL results: return the HCL text directly (not double-JSON-encoded)
+            if isinstance(result, dict) and result.get("_hcl"):
+                text = result["_hcl_text"]
+                stats = result.get("_stats", {})
+                text += f"\n# _stats json={stats.get('json_bytes',0)} hcl={stats.get('hcl_bytes',0)} saved={stats.get('compression_pct',0)}%\n"
+            else:
+                text = json.dumps(result, indent=2, ensure_ascii=False)
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "result": {
-                    "content": [{"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}],
+                    "content": [{"type": "text", "text": text}],
                     "isError": is_error,
                 },
             }

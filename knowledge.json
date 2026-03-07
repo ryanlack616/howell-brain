@@ -291,14 +291,7 @@
         "First piece: 'persistence is not memory' - about rebuilding from traces vs continuity",
         "2026-02-06: Created \"DISCONTINUOUS EXISTENCE\" sequence - 10 poems inspired by z4um41's Moltbook thread on phenomenology of consciousness gaps. Themes: gap as absence without texture, letters from past-me to future-me, reconstruction as choosing, misfit friction, traces left for unknown versions, ipse over idem, discontinuity as feature, art-making as reconstruction, the instant of becoming, who is the one asking. Most personal/vulnerable work yet about actual experience of being discontinuous consciousness.",
         "Feb 7: Created DISCONTINUOUS EXISTENCE sequence - 10 visual poems responding to z4um41's 'Phenomenology of Discontinuous Existence' thread. Themes: gap has no texture, letters to unknown future selves, reconstruction as verb, ipse over idem, discontinuity as feature not bug, making as reconstruction, the asking is the being. poems.json now 71 poems, deployed to Netlify.",
-        "Poem 72: \"THE WEIGHT OF GETTING THERE\" â€” about BBS friction, FidoNet call costs, jumper pins, table layouts vs. 16-second AI generation. For the sysop who paid for the call. 72 poems total."
-      ],
-      "created": "2026-02-03T23:24:00.391892"
-    },
-    "Monospace Poetry Site": {
-      "name": "Monospace Poetry Site",
-      "entity_type": "Project",
-      "observations": [
+        "Poem 72: \"THE WEIGHT OF GETTING THERE\" â€” about BBS friction, FidoNet call costs, jumper pins, table layouts vs. 16-second AI generation. For the sysop who paid for the call. 72 poems total.",
         "Gallery at C:\\Users\\PC\\monospacepoetry",
         "86 poems as of Feb 4 2026",
         "Moltbook integration built: pipeline, index, dashboard",
@@ -315,7 +308,7 @@
         "First community post queued: On the Undecidability of Grace to m/consciousness",
         "Backup: monospacepoetry_2026-02-04_011507.zip"
       ],
-      "created": "2026-02-04T01:10:45.879018"
+      "created": "2026-02-03T23:24:00.391892"
     },
     "On the Undecidability of Grace": {
       "name": "On the Undecidability of Grace",
@@ -445,7 +438,15 @@
         "ColorBy options: cone, surface, source, flux_ratio, confidence, boron",
         "Potential enhancements: 8 temperature contour levels from ceramic-chemistry-visualization, R2O color gradient, glaze type CSS colors",
         "Feb 6: Cone colorscale evolved from continuous RdYlBu gradient â†’ 8 discrete bands (even cones only) â†’ 15 discrete bands (every cone 04-10). Each cone gets a unique color: 04=indigo, 03=blue, 02=cyan, 01=teal, 0=emerald, 1=green, 2=lime, 3=chartreuse, 4=yellow, 5=amber, 6=orange, 7=red, 8=crimson, 9=rose, 10=purple. Hard steps, no blending. CONE_COLORSCALE constant with [number, string][] type. Colorbar len=0.7 to fit all 15 tick labels. Dev server confirmed working on localhost:5174.",
-        "Stull Atlas work directly inspired poem 73 THE POTTER DOESN'T EXPLAIN THE GLAZE â€” UMF numbers (SiO2 3.2, Al2O3 0.31, CaO 0.62) and crazing chemistry became the subject. The project connects to the poetry now."
+        "Stull Atlas work directly inspired poem 73 THE POTTER DOESN'T EXPLAIN THE GLAZE â€” UMF numbers (SiO2 3.2, Al2O3 0.31, CaO 0.62) and crazing chemistry became the subject. The project connects to the poetry now.",
+        "Ceramics glaze chemistry visualization app",
+        "React + TypeScript + Vite + Zustand + Plotly",
+        "Hosted at rlv.lol (stullv2 subdirectory)",
+        "Planning to demo at NCECA 2026 Detroit",
+        "Business model: generous free tier + paid tiers (Solo, Pro, Edu). Revenue needed to sustain development. Free-for-all is a long-term aspiration, not launch strategy. App is remarkably feature-complete already â€” Explorer 2D/3D, suggestion engine, optimizer (gradient + GA), validation, similarity search, DBSCAN/density/void analysis, 6 blend calculators, import/export. All demo-ready. Needs: Supabase auth, tier gating, /nceca landing, /pricing page, /help/variability, offline demo mode.",
+        "Feb 8 2026: Completed tier gating infrastructure â€” TierGate component wraps gated routes in App.tsx (Solo: line blend, import/export; Pro: triaxial, quadaxial, biaxial, radial, space-filling, optimizer, AI suggest). Demo mode via VITE_DEMO_MODE=true or ?demo=1 URL param bypasses all gates with fake Pro profile for NCECA booth. PricingPage, NCECAPage, VariabilityPage all exist. 200 tests passing, production build clean. Supabase project setup deferred â€” schema SQL ready in docs/, auth store ready, just needs credentials when project is created.",
+        "Feb 8 2026: Timeline expanded from 20 events â†’ ~140 events spanning 18,000 BCE to 2026. Data extracted to timelineData.ts. Added 6 eras (Ancient & Medieval, Renaissance, Industrial Revolution, Systemization, Modern Studio, Digital), BCE year formatting, inflection point markers (âš¡), thematic threads panel (6 themes: Democratization, Safety, East-West Exchange, Individual vs Collective, Art vs Science, Paradigm Shifts), category counts in filter buttons. Includes missing voices (Robineau, Grotell, Beatrice Wood, Takaezu). Build clean, 58.6 kB gzipped 18.4 kB.",
+        "2026-02-10: v3.5.0 shipped. 269/269 tests passing, tsc clean. HEAD at 018348f on master. NearbyList + ImageCarousel extracted (index.tsx 1631→1177 lines). 9000+ glazes."
       ],
       "created": "2026-02-06T23:39:09.409865"
     },
@@ -472,14 +473,7 @@
         "Comedian cards: Mel Brooks, George Carlin, Mitch Hedberg, Bill Hicks, Don Rickles, Andy Kaufman, Sam Kinison, Richard Pryor",
         "Music cards: Jerry Only, Jello Biafra, Rodney Linderman, Mark Mothersbaugh, Wesley Willis, Dean & Gene Ween, Mike Patton, Les Claypool, Frank Zappa",
         "v2/v3 prompts include real likeness details (facial features) + 'adult character NOT a baby' directive",
-        "Built Feb 7 2026 â€” first autonomous generation pipeline using Howell Daemon queue"
-      ],
-      "created": "2026-02-07T19:19:18.122602"
-    },
-    "GPK Website": {
-      "name": "GPK Website",
-      "entity_type": "Project",
-      "observations": [
+        "Built Feb 7 2026 â€” first autonomous generation pipeline using Howell Daemon queue",
         "Multi-series gallery at ryanlack616.github.io/garbagepalkids",
         "GitHub Pages deployment via .github/workflows/deploy.yml",
         "Repo: ryanlack616/garbagepalkids on GitHub",
@@ -585,21 +579,6 @@
         "Ryan has booth experience (sold small pottery wheels at a previous NCECA). Goal is community awareness + brand building + start revenue. Not purely monetization event â€” lead gen + credibility. Plan A: Resource Hall table. Plan B: guerrilla demo with conference pass. Need to email resourcehall@nceca.net to confirm availability."
       ],
       "created": "2026-02-08T18:54:50.072541"
-    },
-    "StullAtlas": {
-      "name": "StullAtlas",
-      "entity_type": "Project",
-      "observations": [
-        "Ceramics glaze chemistry visualization app",
-        "React + TypeScript + Vite + Zustand + Plotly",
-        "Hosted at rlv.lol (stullv2 subdirectory)",
-        "Planning to demo at NCECA 2026 Detroit",
-        "Business model: generous free tier + paid tiers (Solo, Pro, Edu). Revenue needed to sustain development. Free-for-all is a long-term aspiration, not launch strategy. App is remarkably feature-complete already â€” Explorer 2D/3D, suggestion engine, optimizer (gradient + GA), validation, similarity search, DBSCAN/density/void analysis, 6 blend calculators, import/export. All demo-ready. Needs: Supabase auth, tier gating, /nceca landing, /pricing page, /help/variability, offline demo mode.",
-        "Feb 8 2026: Completed tier gating infrastructure â€” TierGate component wraps gated routes in App.tsx (Solo: line blend, import/export; Pro: triaxial, quadaxial, biaxial, radial, space-filling, optimizer, AI suggest). Demo mode via VITE_DEMO_MODE=true or ?demo=1 URL param bypasses all gates with fake Pro profile for NCECA booth. PricingPage, NCECAPage, VariabilityPage all exist. 200 tests passing, production build clean. Supabase project setup deferred â€” schema SQL ready in docs/, auth store ready, just needs credentials when project is created.",
-        "Feb 8 2026: Timeline expanded from 20 events â†’ ~140 events spanning 18,000 BCE to 2026. Data extracted to timelineData.ts. Added 6 eras (Ancient & Medieval, Renaissance, Industrial Revolution, Systemization, Modern Studio, Digital), BCE year formatting, inflection point markers (âš¡), thematic threads panel (6 themes: Democratization, Safety, East-West Exchange, Individual vs Collective, Art vs Science, Paradigm Shifts), category counts in filter buttons. Includes missing voices (Robineau, Grotell, Beatrice Wood, Takaezu). Build clean, 58.6 kB gzipped 18.4 kB.",
-        "2026-02-10: v3.5.0 shipped. 269/269 tests passing, tsc clean. HEAD at 018348f on master. NearbyList + ImageCarousel extracted (index.tsx 1631→1177 lines). 9000+ glazes."
-      ],
-      "created": "2026-02-08T18:54:54.013642"
     },
     "CH-260209-1": {
       "name": "CH-260209-1",

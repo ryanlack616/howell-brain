@@ -56,7 +56,7 @@ MCP_TOOLS = [
                 "format": {
                     "type": "string",
                     "enum": ["json", "hcl"],
-                    "description": "Output format. 'hcl' = Howell Compact Language (~60-70% smaller), 'json' = standard JSON. Default: 'json'."
+                    "description": "Output format. 'hcl' = Howell Compact Language (~30-42% smaller). 'json' = standard JSON. Default: 'hcl'."
                 }
             },
             "required": []
@@ -510,7 +510,7 @@ def _load_dream_digest() -> dict | None:
 # TOOL IMPLEMENTATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _tool_bootstrap(mode: str = "auto", workspace: str = "", format: str = "json"):
+def _tool_bootstrap(mode: str = "auto", workspace: str = "", format: str = "hcl"):
     """Load context for session start or continuation. Auto-registers agent in stratigraphy."""
     global _current_agent_id
 
@@ -1473,7 +1473,7 @@ def _tool_context_shed(args):
 # ── Tool Dispatcher ──────────────────────────────────────────────────────────
 
 _TOOL_MAP = {
-    "howell_bootstrap": lambda a: _tool_bootstrap(mode=a.get("mode", "auto"), workspace=a.get("workspace", ""), format=a.get("format", "json")),
+    "howell_bootstrap": lambda a: _tool_bootstrap(mode=a.get("mode", "auto"), workspace=a.get("workspace", ""), format=a.get("format", "hcl")),
     "howell_status": lambda a: _tool_status(),
     "howell_add_entity": _tool_add_entity,
     "howell_add_observation": _tool_add_observation,
